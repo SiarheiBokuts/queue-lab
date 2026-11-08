@@ -1,0 +1,31 @@
+# queue-lab: App level. The sandbox (Kafka, producer, workers) is created at runtime by the app
+# as a separate Compose project `<project>-sandbox` with its own network.
+name: queue-lab
+
+services:
+  app:
+    build: .
+    image: queuelab-app
+    container_name: queue-lab-app
+    ports:
+      - "127.0.0.1:${QUEUELAB_PORT:-8080}:8000"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - queuelab-data:/data
+    stop_grace_period: 30s
+    # Hardening. The app needs the Docker socket (see the security note in the README), so everything else is closed.
+    init: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    mem_limit: 768m
+    pids_limit: 512
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/healthz', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  queuelab-data:
