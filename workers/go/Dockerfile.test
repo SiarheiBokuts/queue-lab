@@ -1,0 +1,6 @@
+# Unit tests of the Go worker helpers: docker build -f workers/go/Dockerfile.test workers/go
+FROM golang:1.27-bookworm
+WORKDIR /src
+COPY go.mod ./
+COPY *.go ./
+RUN go mod tidy && go vet ./... && go test ./...

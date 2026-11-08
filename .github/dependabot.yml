@@ -1,0 +1,10 @@
+version: 2
+updates:
+  - { package-ecosystem: pip, directory: /backend, schedule: { interval: weekly } }
+  - { package-ecosystem: npm, directory: /frontend, schedule: { interval: weekly } }
+  - { package-ecosystem: npm, directory: /workers/node, schedule: { interval: weekly } }
+  - { package-ecosystem: gomod, directory: /workers/go, schedule: { interval: weekly } }
+  - { package-ecosystem: cargo, directory: /workers/rust, schedule: { interval: weekly } }
+  - { package-ecosystem: maven, directory: /workers/java, schedule: { interval: weekly } }
+  - { package-ecosystem: docker, directory: /, schedule: { interval: weekly } }
+  - { package-ecosystem: github-actions, directory: /, schedule: { interval: weekly } }

@@ -1,0 +1,20 @@
+[project]
+name = "queue-lab-backend"
+version = "1.0.0"
+description = "queue-lab backend: orchestrates Kafka and worker containers through the Docker API"
+requires-python = ">=3.13"
+
+[tool.ruff]
+line-length = 120
+target-version = "py313"
+
+[tool.ruff.lint]
+# E/W pycodestyle, F pyflakes, I import order, B bugbear, UP modern syntax, SIM simplifications,
+# BLE blind excepts (each `except Exception` must carry an explaining noqa), RUF ruff-specific.
+select = ["E", "W", "F", "I", "B", "UP", "SIM", "BLE", "RUF"]
+# `ruff format` owns code line length; long docstrings and explanatory comments are allowed to run over.
+ignore = ["E501"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]

@@ -1,0 +1,6 @@
+.git
+openspec
+**/node_modules
+frontend/dist
+backend/data
+**/__pycache__

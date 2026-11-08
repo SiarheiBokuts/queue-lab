@@ -1,0 +1,7 @@
+# Runs the unit tests of the Python worker helpers: docker build -f workers/python/Dockerfile.test workers/python
+FROM python:3.14-slim-trixie
+WORKDIR /app
+RUN pip install --no-cache-dir pytest==9.2.0
+COPY lib.py cpu.py ./
+COPY tests ./tests
+RUN python -m pytest -q tests

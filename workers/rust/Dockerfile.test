@@ -1,0 +1,7 @@
+# Unit tests of the Rust worker helpers: docker build -f workers/rust/Dockerfile.test workers/rust
+FROM rust:1.99-bookworm
+RUN apt-get update && apt-get install -y --no-install-recommends cmake && rm -rf /var/lib/apt/lists/*
+WORKDIR /src
+COPY Cargo.toml ./
+COPY src ./src
+RUN cargo test --release

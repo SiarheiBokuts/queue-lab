@@ -1,0 +1,25 @@
+# dependencies and build output
+node_modules/
+dist/
+dist-test/
+target/
+__pycache__/
+*.pyc
+.venv/
+
+# tool caches
+.ruff_cache/
+.pytest_cache/
+.vite/
+
+# local data and secrets
+backend/data/
+.env
+.env.*
+*.log
+
+# editors and systems
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db

@@ -1,0 +1,36 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: ${{ matrix.name }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: Backend (ruff, pytest), args: "--target backend-test ." }
+          - { name: Frontend (vue-tsc, vitest), args: "--target web-test ." }
+          - { name: Worker Python, args: "-f workers/python/Dockerfile.test workers/python" }
+          - { name: Worker Node.js, args: "-f workers/node/Dockerfile.test workers/node" }
+          - { name: Worker Go, args: "-f workers/go/Dockerfile.test workers/go" }
+          - { name: Worker Rust, args: "-f workers/rust/Dockerfile.test workers/rust" }
+          - { name: Worker Java, args: "-f workers/java/Dockerfile.test workers/java" }
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test
+        run: docker build ${{ matrix.args }}
+
+  image:
+    name: The app image builds
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -t queuelab-app .
