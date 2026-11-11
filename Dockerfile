@@ -11,7 +11,7 @@ FROM web AS web-test
 RUN npm run typecheck && npm test
 
 # Stage `backend-test`: lint and unit-test the backend.      docker build --target backend-test .
-FROM python:3.14-slim-trixie AS backend-test
+FROM python:3.15-slim-trixie AS backend-test
 WORKDIR /app
 COPY backend/requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt pytest==9.2.0 ruff==0.17.4
@@ -24,7 +24,7 @@ COPY CHANGELOG.md ./CHANGELOG.md
 RUN ruff check app tests && python -m pytest -q
 
 # Final stage (the default): FastAPI backend that also serves the built frontend and carries the worker sources
-FROM python:3.14-slim-trixie
+FROM python:3.15-slim-trixie
 WORKDIR /app
 COPY backend/requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
