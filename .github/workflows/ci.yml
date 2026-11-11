@@ -24,7 +24,7 @@ jobs:
           - { name: Worker Rust, args: "-f workers/rust/Dockerfile.test workers/rust" }
           - { name: Worker Java, args: "-f workers/java/Dockerfile.test workers/java" }
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Test
         run: docker build ${{ matrix.args }}
 
@@ -32,5 +32,5 @@ jobs:
     name: The app image builds
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - run: docker build -t queuelab-app .
