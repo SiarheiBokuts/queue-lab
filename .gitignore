@@ -23,3 +23,4 @@ backend/data/
 .vscode/
 .DS_Store
 Thumbs.db
+backend/tests/.data/
