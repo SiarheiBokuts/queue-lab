@@ -93,7 +93,7 @@ Workers track the last `seq` per partition, which makes lost messages (gaps), du
 delivery detectable without storing every id. Latency = worker receive time minus send timestamp (same machine clock).
 
 ### 6. Processing scenarios
-Chosen per run in the UI: `echo` (count only), `delay` (sleep N ms per message), `cpu` (hash loop of N iterations).
+Chosen per run in the UI: `echo` (count only), `delay` (sleep N ms per message), `cpu` (integer xorshift loop of N iterations, marked less accurate).
 New scenarios are added by registering a name and parameters in both backend schema and worker.
 
 ### 7. Live monitoring

@@ -119,6 +119,9 @@ func TestTheSameKeyAlwaysGetsTheSameLane(t *testing.T) {
 	if laneFor([]byte("user-7"), 16) != laneFor([]byte("user-7"), 16) {
 		t.Fatal("the lane must be stable")
 	}
+	if laneFor([]byte("user-7"), 16) != 14 {
+		t.Fatal("FNV-1a must give the same lane in every language")
+	}
 	for n := 0; n < 200; n++ {
 		if lane := laneFor([]byte("user-"+string(rune('a'+n%26))), 8); lane < 0 || lane >= 8 {
 			t.Fatalf("lane %d out of range", lane)

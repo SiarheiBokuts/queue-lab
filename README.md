@@ -7,6 +7,21 @@ latency, messages waiting, CPU, memory and network. Run the same test in every l
 
 **Stack:** Python (FastAPI) · Vue 3 + TypeScript · Kafka · Docker · Go · Rust · Java · Node.js
 
+### 🎯 What is tested and checked
+**Tested (measured):**
+- **Speed:** how many messages per second a worker handles under the load you set (count, size, rate, senders, compression).
+- **Latency:** time from send to handling, taken from the send time in each message header.
+- **Backlog:** messages waiting per partition while the test runs.
+- **Resources:** CPU, memory and network of every container, read from Docker the same way for every language.
+- **Languages:** the same test in Python, Node.js, Java, Go and Rust, run in random order and scored side by side.
+- **Scenarios:** echo (count only), delay (waits like a database call), CPU (integer loop, less accurate: it shows raw language speed, not real service behaviour).
+
+**Checked (verified):**
+- **No lost or duplicated messages:** sequence numbers per sender and partition; a run that lost messages cannot win.
+- **Order per user (by design, not measured):** messages of one user always go to the same partition and the same lane, so they are handled one after another while other users run in parallel. Order as read from Kafka is checked; order inside a lane is not.
+- **Sent against received:** the report compares what was really sent with what the workers got.
+- **Memory budget:** the app refuses containers that do not fit in the limits you set.
+
 ### 📑 Contents
 
 - [🚀 Quick start](#-quick-start)
@@ -34,7 +49,7 @@ Stop with `docker compose down`; the containers the app created are removed with
 ## ✨ Features
 - **Load:** up to 50 million messages, message size, target rate, several senders, compression, compressible or random data.
 - **Workers:** how many messages one worker handles at once, and whether messages of one user stay in order.
-- **Scenarios:** echo (count only), delay (waits like a database call), CPU (hashing).
+- **Scenarios:** echo (count only), delay (waits like a database call), CPU (integer loop, less accurate: it shows raw language speed, not real service behaviour).
 - **Live view:** topology, progress, messages waiting per partition, every container.
 - **Report:** message window, verdict, resources, latency, network (needed against really sent).
 - **Compare languages:** the same test per language in random order, with a scored winner and every metric side by side.
@@ -86,6 +101,12 @@ the same report and does the same steps per message (listed on the Code page), e
 language. CPU, memory and network are read by the app from Docker for every container the same way (twice a second,
 the numbers `docker stats` shows), not by the workers. A comparison runs the languages one after another with a pause.
 The winner is decided by speed 40 %, latency 30 %, efficiency 30 %, and a run that lost messages cannot win.
+
+## ⚠️ Known limits
+- **CPU scenario** is less accurate: a plain integer loop shows raw language speed, not how a real service behaves.
+- **Order inside a lane** is guaranteed by design (one user, one partition, one lane), but not measured.
+- **Offsets are committed when a message is read, not when it is handled** (`enable.auto.commit`). A rebalance can lose or repeat the messages waiting in lanes. Fine for measuring, not a delivery-guarantee test.
+- **A full lane pauses reading for the whole worker.** With few users, or one very busy user, the other lanes wait too.
 
 ## 📁 Project layout
 ```

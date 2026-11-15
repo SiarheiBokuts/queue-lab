@@ -28,7 +28,7 @@ class ProducerSpec(BaseModel):
 
 
 class ScenarioSpec(BaseModel):
-    """What the workers do with each message and its parameter (delay in ms or hash iterations)."""
+    """What the workers do with each message and its parameter (delay in ms or loop iterations)."""
 
     type: Literal["echo", "delay", "cpu"] = "echo"
     param: int = Field(0, ge=0, le=1_000_000)

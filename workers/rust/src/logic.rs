@@ -156,7 +156,7 @@ mod tests {
 
     #[test]
     fn the_same_key_always_gets_the_same_lane() {
-        assert_eq!(lane_for(b"user-7", 16), lane_for(b"user-7", 16));
+        assert_eq!(lane_for(b"user-7", 16), 14); // FNV-1a gives the same lane in every language
         assert!((0..200).all(|n| lane_for(format!("user-{n}").as_bytes(), 8) < 8));
     }
     #[test]

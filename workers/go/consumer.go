@@ -3,7 +3,6 @@ package main
 // The consumer (the "handler"): reads messages in a consumer group, verifies them, runs the chosen scenario.
 
 import (
-	"crypto/sha256"
 	"os"
 	"sort"
 	"strconv"
@@ -85,16 +84,21 @@ func runConsumer() {
 	}
 	startReporter(func() { sendReport(false) }, func() bool { return true })
 
-	seed := []byte("queuelab") // starting value of the hash chain used by the cpu scenario
+	const seed uint32 = 2463534242 // starting value of the xorshift chain used by the cpu scenario
 	// @scenario-start
 	// handle is what the worker does with one message. Several run at the same time when concurrency is above 1.
 	handle := func() {
 		if scenario == "delay" && param > 0 {
 			time.Sleep(time.Duration(param) * time.Millisecond) // pretend to wait for a database or an API call
 		} else if scenario == "cpu" && param > 0 {
-			h := sha256.Sum256(seed)
-			for i := 0; i < param; i++ {
-				h = sha256.Sum256(h[:]) // burn CPU like parsing or encryption would
+			x := seed
+			for i := 0; i < param; i++ { // plain integer code in the language itself, no library does the work
+				x ^= x << 13
+				x ^= x >> 17
+				x ^= x << 5
+			}
+			if x == 0 { // never true for this seed, but it keeps the compiler from dropping the loop
+				time.Sleep(0)
 			}
 		}
 		// echo: do nothing, just count the message

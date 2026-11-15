@@ -120,18 +120,15 @@ def test_the_same_key_always_gets_the_same_lane() -> None:
 
     assert lane_for(b"user-7", 16) == lane_for(b"user-7", 16)
     assert all(0 <= lane_for(f"user-{n}".encode(), 8) < 8 for n in range(200))
+    assert lane_for(b"user-7", 16) == 14  # FNV-1a gives the same lane in every language
     assert lane_for(None, 4) == lane_for(b"", 4)  # a message without a key is still handled
 
 
-def test_the_cpu_work_is_a_chain_of_hashes_and_runs_in_a_pool_of_processes() -> None:
-    import hashlib
-
+def test_the_cpu_work_is_an_xorshift_chain_and_runs_in_a_pool_of_processes() -> None:
     import cpu
 
-    h = cpu.SEED
-    for _ in range(3):
-        h = hashlib.sha256(h).digest()
-    cpu.burn(3)  # nothing to compare, it must simply run
-    assert len(h) == 32
+    assert cpu.burn(0) == cpu.SEED
+    assert cpu.burn(1) == 723471715  # first step of xorshift32 from 2463534242, the same value in every language
+    assert 0 < cpu.burn(1000) <= cpu.MASK
     with cpu.make_pool() as pool:
-        assert pool.submit(cpu.burn, 50).result() is None
+        assert pool.submit(cpu.burn, 50).result() == cpu.burn(50)

@@ -7,19 +7,25 @@ cores, at most MAX_PROCESSES (every process costs memory, and a worker container
 This module imports nothing heavy on purpose: every process of the pool imports it when it starts.
 """
 
-import hashlib
 import os
 from concurrent.futures import ProcessPoolExecutor
 
 MAX_PROCESSES = 4
-SEED = b"queuelab"  # starting value of the hash chain, the same in every language
+SEED = 2463534242  # starting value of the xorshift chain, the same in every language
+MASK = 0xFFFFFFFF  # Python ints have no size, so the result is cut to 32 bits like in the other languages
 
 
 def burn(rounds: int) -> None:
-    """Compute `rounds` SHA-256 hashes in a row, each of the previous one. Runs in a process of the pool."""
-    h = SEED
+    """Run `rounds` steps of a 32-bit xorshift, each step uses the previous one. Runs in a process of the pool.
+
+    Plain integer code in the language itself, no library does the work, so this measures the language and not
+    a fast C or assembly routine behind it."""
+    x = SEED
     for _ in range(rounds):
-        h = hashlib.sha256(h).digest()
+        x ^= (x << 13) & MASK
+        x ^= x >> 17
+        x ^= (x << 5) & MASK
+    return x
 
 
 def make_pool() -> ProcessPoolExecutor:

@@ -3,7 +3,6 @@
 use rdkafka::consumer::{BaseConsumer, Consumer};
 use rdkafka::Message;
 use serde_json::json;
-use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
@@ -33,11 +32,13 @@ fn handle(scenario: &str, param: u64) {
     if scenario == "delay" && param > 0 {
         std::thread::sleep(Duration::from_millis(param)); // pretend to wait for a database or an API call
     } else if scenario == "cpu" && param > 0 {
-        let mut hash = Sha256::digest(b"queuelab");
+        let mut x: u32 = 2_463_534_242;
         for _ in 0..param {
-            hash = Sha256::digest(hash); // burn CPU like parsing or encryption would
+            x ^= x << 13; // plain integer code in the language itself, no library does the work
+            x ^= x >> 17;
+            x ^= x << 5;
         }
-        std::hint::black_box(hash);
+        std::hint::black_box(x);
     }
     // echo: do nothing, just count the message
 }

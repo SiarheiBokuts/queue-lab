@@ -1,6 +1,5 @@
 package lab;
 
-import java.security.MessageDigest;
 import java.time.Duration;
 import java.util.Collection;
 import java.util.HashMap;
@@ -15,6 +14,8 @@ import org.apache.kafka.common.TopicPartition;
 /** The consumer (the "handler"): reads messages in a consumer group, verifies them, runs the chosen scenario. */
 final class Consumer {
   private Consumer() {}
+
+  private static volatile int sink; // the result of the cpu scenario goes here so the loop is not optimized away
 
   private static final class State {
     long received;
@@ -92,9 +93,13 @@ final class Consumer {
         if (scenario.equals("delay") && param > 0) {
           Thread.sleep(param); // pretend to wait for a database or an API call
         } else if (scenario.equals("cpu") && param > 0) {
-          MessageDigest sha = MessageDigest.getInstance("SHA-256"); // one per message: a digest is not thread-safe
-          byte[] hash = sha.digest("queuelab".getBytes());
-          for (int i = 0; i < param; i++) hash = sha.digest(hash); // burn CPU like parsing or encryption would
+          int x = 0x92d68ca2; // 2463534242, the starting value of the xorshift chain
+          for (int i = 0; i < param; i++) { // plain integer code in the language itself, no library does the work
+            x ^= x << 13;
+            x ^= x >>> 17;
+            x ^= x << 5;
+          }
+          sink = x; // a volatile write, so the JIT cannot drop the loop
         }
         // echo: do nothing, just count the message
       } catch (Exception e) {
@@ -157,7 +162,8 @@ final class Consumer {
       }
     } finally {
       for (var lane : lanes) lane.put(stop); // no more work: each lane finishes what it holds and stops
-      for (Thread thread : threads) thread.join(); // let the messages already taken finish before the final report      report.accept(true);
+      for (Thread thread : threads) thread.join(); // let the messages already taken finish before the final report
+      report.accept(true);
       consumer.close(); // leave the group cleanly so the partitions are reassigned at once
     }
   }

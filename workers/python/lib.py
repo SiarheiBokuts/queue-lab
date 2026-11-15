@@ -9,7 +9,6 @@ sequence: counts from 0 per sender and partition; a gap means loss, a repeat a d
 subtracted from "now" to get the latency. The rest is padding up to the message size chosen in the form.
 """
 
-import zlib
 from collections.abc import Hashable
 
 HEADER_SEPARATOR = b"|"
@@ -89,7 +88,10 @@ def user_key(part: int, i: int, nparts: int, users: int) -> bytes:
 
 def lane_for(key: bytes | None, lanes: int) -> int:
     """The lane (0 .. lanes-1) that handles messages with this key. The same key always gets the same lane."""
-    return zlib.crc32(key or b"") % lanes
+    h = 0x811C9DC5  # FNV-1a, the same hash as in the other languages, so a user lands in the same lane everywhere
+    for byte in key or b"":
+        h = ((h ^ byte) * 0x01000193) & 0xFFFFFFFF
+    return h % lanes
 
 
 def pacing_delay(sent: int, rate: float, elapsed: float) -> float:

@@ -47,24 +47,25 @@ SCENARIOS = [
     },
     {
         "id": "cpu",
-        "title": "CPU load (hashing)",
-        "summary": "For every message the worker computes SHA-256 N times in a row, which keeps one CPU core busy.",
+        "title": "CPU load (integer loop, less accurate)",
+        "summary": "For every message the worker runs a plain integer loop (xorshift) N times, which keeps one CPU core busy. Less accurate than echo and delay: it shows how fast each language runs simple code, not how a real service behaves.",
         "simulates": "CPU-bound work: parsing, encryption, compression, image or JSON processing.",
         "does": [
             "Does the same checks as echo.",
-            "Then runs a hash loop of the chosen length, so the work per message is predictable.",
+            "Then runs a loop of 32-bit integer steps (xorshift) of the chosen length. It is written the same way in every language and uses no library, so no language gets a fast native routine for free (SHA-256 did).",
         ],
         "watch": [
             "Worker CPU rises toward 100% of one core, so the CPU, not the network, becomes the bottleneck.",
             "Throughput scales with the number of workers only while there are free cores and partitions.",
             "Python and Node.js behave differently here: run the same setup with both and compare in Runs.",
+            "Less accurate: real services spend time in libraries (JSON, regex, crypto) that are often native code, so Python looks much slower here than a real Python service would. Trust echo and delay more.",
             "Memory usually stays small, so you can see how little memory the work really needs.",
         ],
         "param": {
-            "label": "Hash iterations per message",
-            "default": 500,
+            "label": "Loop iterations per message",
+            "default": 20000,
             "min": 0,
-            "hint": "200 is light, 5000 is heavy.",
+            "hint": "5000 is light, 200000 is heavy (Python is far slower than the rest).",
         },
     },
 ]

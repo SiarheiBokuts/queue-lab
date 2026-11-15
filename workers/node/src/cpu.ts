@@ -31,7 +31,7 @@ export class HashPool {
     return this.threads.length;
   }
 
-  /** Compute `rounds` hashes on one of the threads (in turn). Resolves when it is done. */
+  /** Run `rounds` xorshift steps on one of the threads (in turn). Resolves when it is done. */
   run(rounds: number): Promise<void> {
     const id = this.nextId++;
     const thread = this.threads[this.nextThread++ % this.threads.length] as Worker;

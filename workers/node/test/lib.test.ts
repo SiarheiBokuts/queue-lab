@@ -123,7 +123,7 @@ describe('users, keys and lanes', () => {
   });
 
   it('the same key always gets the same lane, within range', () => {
-    assert.equal(laneFor('user-7', 16), laneFor('user-7', 16));
+    assert.equal(laneFor('user-7', 16), 14); // FNV-1a gives the same lane in every language
     for (let n = 0; n < 200; n++) {
       const lane = laneFor(`user-${n}`, 8);
       assert.ok(lane >= 0 && lane < 8);

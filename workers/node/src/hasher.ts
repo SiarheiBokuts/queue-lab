@@ -1,11 +1,15 @@
 ﻿/** Runs inside a worker thread: burns CPU for the "cpu" scenario so the main thread can keep reading from Kafka. */
-import { hash } from 'node:crypto';
 import { parentPort } from 'node:worker_threads';
 
-const SEED = Buffer.from('queuelab'); // starting value of the hash chain, the same in every language
+const SEED = 2463534242; // starting value of the xorshift chain, the same in every language
 
 parentPort?.on('message', (task: { id: number; rounds: number }) => {
-  let h: Buffer = SEED;
-  for (let i = 0; i < task.rounds; i++) h = hash('sha256', h, 'buffer'); // one-shot hash, no object per round
+  let x = SEED;
+  for (let i = 0; i < task.rounds; i++) {
+    x ^= x << 13; // plain integer code in the language itself, no library does the work
+    x ^= x >>> 17;
+    x ^= x << 5;
+    x >>>= 0; // keep it an unsigned 32-bit number
+  }
   parentPort?.postMessage(task.id);
 });

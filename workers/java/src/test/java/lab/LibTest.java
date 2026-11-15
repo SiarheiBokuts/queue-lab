@@ -114,7 +114,7 @@ class LibTest {
 
   @Test
   void theSameKeyAlwaysGetsTheSameLane() {
-    assertEquals(Lib.laneFor("user-7".getBytes(), 16), Lib.laneFor("user-7".getBytes(), 16));
+    assertEquals(14, Lib.laneFor("user-7".getBytes(), 16)); // FNV-1a gives the same lane in every language
     for (int n = 0; n < 200; n++) {
       int lane = Lib.laneFor(("user-" + n).getBytes(), 8);
       assertTrue(lane >= 0 && lane < 8);
