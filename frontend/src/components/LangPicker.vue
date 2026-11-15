@@ -25,7 +25,23 @@ defineEmits<{ 'update:modelValue': [id: string] }>()
 </template>
 
 <style scoped>
-.lang-pick { display: inline-flex; align-items: center; gap: 7px; padding: 6px 11px; border-radius: 8px; background: #1f1f23; border: 1px solid #3f3f46; color: #d4d4d8; font-size: 13px; cursor: pointer; }
-.lang-pick:hover { background: #27272a; }
-.lang-pick.on { background: #1a1a1d; color: #fff; }
+.lang-pick {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 11px;
+  border-radius: 8px;
+  background: #1f1f23;
+  border: 1px solid #3f3f46;
+  color: #d4d4d8;
+  font-size: 13px;
+  cursor: pointer;
+}
+.lang-pick:hover {
+  background: #27272a;
+}
+.lang-pick.on {
+  background: #1a1a1d;
+  color: #fff;
+}
 </style>

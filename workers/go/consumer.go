@@ -43,23 +43,29 @@ func readBatch(consumer *kafka.Consumer, stats *consumerStats) []*kafka.Message 
 }
 
 // handleGroup handles the messages of one user one after another.
-func handleGroup(count int, handle func()) {
-	for i := 0; i < count; i++ {
+func handleGroup(group []item, handle func(), order *orderCheck) time.Time {
+	for _, it := range group {
+		order.check(it)
 		handle()
 	}
+	return time.Now() // the time this group was done
 }
 
 // runBatch handles all groups at the same time and waits until every one of them is done.
-func runBatch(groups [][]int, handle func()) {
+// It returns how long the batch took and how long of that some groups were done while others still worked.
+func runBatch(groups [][]item, handle func(), order *orderCheck) (busyMs, waitMs float64) {
+	started := time.Now()
+	done := make([]time.Time, len(groups))
 	var running sync.WaitGroup
-	for _, group := range groups {
+	for i, group := range groups {
 		running.Add(1)
-		go func(count int) {
+		go func(i int, group []item) {
 			defer running.Done()
-			handleGroup(count, handle)
-		}(len(group))
+			done[i] = handleGroup(group, handle, order)
+		}(i, group)
 	}
 	running.Wait()
+	return batchTiming(started, done)
 }
 
 // commit tells Kafka that everything read so far is handled. A crash before this repeats the batch.
@@ -141,16 +147,17 @@ func runConsumer() {
 			continue
 		}
 		arrived := nowMs()
-		var keys [][]byte
+		var items []item
 		for _, message := range batch {
 			head, valid := parseHeader(message.Value, runID)
 			if !valid {
 				continue // a leftover from another run: ignore it
 			}
 			stats.record(head, message.TopicPartition.Partition, int64(message.TopicPartition.Offset), arrived)
-			keys = append(keys, message.Key)
+			items = append(items, item{key: message.Key, producer: head.producer, seq: head.seq})
 		}
-		runBatch(groupByUser(keys), handle)
+		busyMs, waitMs := runBatch(groupByUser(items), handle, stats.order)
+		stats.addBatch(busyMs, waitMs)
 		commit(consumer)
 	}
 	stats.report(true)

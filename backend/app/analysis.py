@@ -56,6 +56,17 @@ def merged_size(ranges: list[list[int]]) -> int:
     return total
 
 
+def batch_wait_pct(workers) -> float | None:
+    """The share of the time spent handling batches in which some users were done and the others still worked.
+
+    A batch ends when its slowest user is done, so this is the time the finished users wait for it: a measure of the
+    cost of reading the next batch only when the whole batch is handled.
+    """
+    busy = sum(w.get("batch_busy_ms", 0) for w in workers)
+    wait = sum(w.get("batch_wait_ms", 0) for w in workers)
+    return round(wait / busy * 100, 1) if busy > 0 else None
+
+
 def totals(run) -> dict:
     """Sum of the counters of the producers and all consumers: sent, received, unique, duplicates, errors.
 
@@ -78,6 +89,8 @@ def totals(run) -> dict:
         "received": received,
         "duplicates": received - unique,
         "errors": sum(w["errors"] for w in ws) + prod.get("errors", 0),
+        "order_violations": sum(w.get("order_violations", 0) for w in ws),
+        "batch_wait_pct": batch_wait_pct(ws),
         "unique": unique,
         "producer_done": bool(prod.get("done")),
     }
@@ -242,8 +255,22 @@ def notes(run, tot, summary) -> list[dict]:
             out.append({
                 "level": "bad",
                 "text": f"{summary['lost']:,} messages were lost and {tot['duplicates']:,} were received more than once. "
-                "A repeat is expected after a worker restarts: the batch it was handling is read again.",
+                "A repeat is expected after a worker restarts: the batch it was handling is read again, unless the worker never reported it.",
             })  # fmt: skip
+    stopped = run.get("stopped_workers") or []
+    if stopped:
+        out.append({
+            "level": "warn",
+            "text": f"{len(stopped)} worker(s) stopped during the run ({", ".join(stopped)}): killed or crashed. "
+            "Another worker took over its partitions and read its unfinished batch again. The last second it did "
+            "not get to report is missing from the count, so the lost number can be too high by a few thousand "
+            "messages that were in fact handled.",
+        })  # fmt: skip
+    if summary.get("order_violations"):
+        out.append({
+            "level": "bad",
+            "text": f"{summary['order_violations']:,} messages were handled after a later message of the same user.",
+        })  # fmt: skip
     return out
 
 # ----------------------------------------------------------------------------------- comparing runs
@@ -265,6 +292,8 @@ COMPARE_ROWS = [
     ("producer_cpu_ms_per_1k", "CPU per 1,000 messages (producer)", "ms", True, "CPU time a producer needs to send 1,000 messages."),
     ("producer_mem_peak", "Producer memory, peak", "MB", True, "Highest memory use of a producer."),
     ("network_mb", "Network into Kafka", "MiB", True, "Data Kafka received from the senders, after compression. Measured at the broker, which runs the whole time, so it is reliable even when a sender finishes in a second."),
+    ("order_violations", "Handled out of order", "messages", True, "Messages handled after a later message of the same user. A well built consumer has none."),
+    ("batch_wait_pct", "Waiting for the slowest user", "% of batch time", True, "Time in a batch when some users were done and the others still worked. It is the cost of reading the next batch only when the whole batch is done."),
     ("lost", "Lost messages", "messages", True, "Sent but never processed."),
     ("duplicates", "Duplicates", "messages", True, "Processed more than once."),
 ]  # fmt: skip
@@ -335,6 +364,8 @@ def run_metrics(run: dict) -> dict:
         "network_mb": ((s.get("network") or {}).get("broker_received_mb") or (s.get("network") or {}).get("producers_sent_mb")) or None,
         "lost": s.get("lost"),
         "duplicates": s.get("duplicates"),
+        "order_violations": s.get("order_violations"),
+        "batch_wait_pct": s.get("batch_wait_pct"),
     }
 
 

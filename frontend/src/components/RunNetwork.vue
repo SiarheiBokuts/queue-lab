@@ -14,10 +14,27 @@ const saved = computed(() => {
 const rows = computed(() => {
   const x = n.value
   if (!x) return []
-  const top = Math.max(x.needed_mb, x.producers_sent_mb, x.broker_received_mb, x.broker_sent_mb, x.workers_received_mb, 0.01)
+  const top = Math.max(
+    x.needed_mb,
+    x.producers_sent_mb,
+    x.broker_received_mb,
+    x.broker_sent_mb,
+    x.workers_received_mb,
+    0.01,
+  )
   return [
-    { label: 'The data itself', note: `${x.messages.toLocaleString()} messages × ${x.message_size} bytes`, mb: x.needed_mb, color: '#8b5cf6' },
-    { label: 'Senders put on the network', note: x.compression === 'none' ? 'no compression' : `compressed with ${x.compression}`, mb: x.producers_sent_mb, color: '#3b82f6' },
+    {
+      label: 'The data itself',
+      note: `${x.messages.toLocaleString()} messages × ${x.message_size} bytes`,
+      mb: x.needed_mb,
+      color: '#8b5cf6',
+    },
+    {
+      label: 'Senders put on the network',
+      note: x.compression === 'none' ? 'no compression' : `compressed with ${x.compression}`,
+      mb: x.producers_sent_mb,
+      color: '#3b82f6',
+    },
     { label: 'Kafka received', note: 'from all senders', mb: x.broker_received_mb, color: '#06b6d4' },
     { label: 'Kafka sent', note: 'to the workers', mb: x.broker_sent_mb, color: '#06b6d4' },
     { label: 'Workers received', note: 'all workers together', mb: x.workers_received_mb, color: '#10b981' },
@@ -32,15 +49,21 @@ const rows = computed(() => {
       <span class="lbl">MiB moved between the containers while the messages were sent and processed</span>
     </div>
     <div v-for="r in rows" :key="r.label" class="mb-2">
-      <div class="flex justify-between text-sm"><span>{{ r.label }} <span class="lbl">· {{ r.note }}</span></span><b>{{ r.mb }} MiB</b></div>
+      <div class="flex justify-between text-sm">
+        <span
+          >{{ r.label }} <span class="lbl">· {{ r.note }}</span></span
+        ><b>{{ r.mb }} MiB</b>
+      </div>
       <div class="bar"><i :style="{ width: r.width + '%', background: r.color }" /></div>
     </div>
     <div class="grid gap-2.5 mt-3" style="grid-template-columns: repeat(auto-fit, minmax(190px, 1fr))">
       <div class="tile" v-if="n.needed_mbit_s !== null">
-        <div class="lbl">While sending, the data needed</div><div class="val">{{ n.needed_mbit_s }} Mbit/s</div>
+        <div class="lbl">While sending, the data needed</div>
+        <div class="val">{{ n.needed_mbit_s }} Mbit/s</div>
       </div>
       <div class="tile" v-if="n.actual_mbit_s !== null">
-        <div class="lbl">While sending, the wire carried</div><div class="val">{{ n.actual_mbit_s }} Mbit/s</div>
+        <div class="lbl">While sending, the wire carried</div>
+        <div class="val">{{ n.actual_mbit_s }} Mbit/s</div>
       </div>
       <div class="tile" v-if="saved" :style="{ borderLeft: '3px solid ' + (saved.pct > 0 ? '#10b981' : '#f59e0b') }">
         <div class="lbl">Saved by {{ n.compression }}</div>
@@ -48,10 +71,16 @@ const rows = computed(() => {
         <div class="lbl">{{ saved.pct > 0 ? saved.mb + ' MiB less on the network' : 'this data does not shrink' }}</div>
       </div>
       <div class="tile" v-if="n.compression_ratio">
-        <div class="lbl">Smaller on the wire</div><div class="val">{{ n.compression_ratio }}x</div>
-        <div class="lbl">{{ n.compression === 'none' ? 'no compression chosen' : n.compression + ', ' + n.payload + ' data' }}</div>
+        <div class="lbl">Smaller on the wire</div>
+        <div class="val">{{ n.compression_ratio }}x</div>
+        <div class="lbl">
+          {{ n.compression === 'none' ? 'no compression chosen' : n.compression + ', ' + n.payload + ' data' }}
+        </div>
       </div>
     </div>
-    <div class="lbl mt-2">Counters include Kafka protocol overhead and the small progress reports, so they are slightly above the data size without compression.</div>
+    <div class="lbl mt-2">
+      Counters include Kafka protocol overhead and the small progress reports, so they are slightly above the data size
+      without compression.
+    </div>
   </div>
 </template>

@@ -8,7 +8,11 @@ import { toasts } from '../notify'
       v-for="t in toasts"
       :key="t.id"
       class="card text-sm"
-      :style="{ borderColor: t.kind === 'error' ? '#7f1d1d' : '#065f46', background: t.kind === 'error' ? '#2a1010' : '#0b2a22', maxWidth: '360px' }"
+      :style="{
+        borderColor: t.kind === 'error' ? '#7f1d1d' : '#065f46',
+        background: t.kind === 'error' ? '#2a1010' : '#0b2a22',
+        maxWidth: '360px',
+      }"
     >
       {{ t.text }}
     </div>

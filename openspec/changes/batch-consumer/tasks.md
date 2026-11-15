@@ -24,7 +24,7 @@ Nothing here is started except where marked done. Order matters: 1 first, becaus
   `run_batch`, `commit`, `ConsumerStats` (table in proposal.md), each as a separate small method
 - [x] The same one-sentence comment above each unit, in every language
 - [x] Contract test: every consumer defines these units and reads `CONCURRENCY` as the batch size and the wait from the settings
-- [ ] The Code page shows the units of the chosen language side by side with the others
+- [x] The Code page shows the units of the chosen language side by side with the others
 
 ## 3. Settings, the same for everyone
 - [x] One source of truth: the batch size and the longest wait are sent by the backend to every worker, no default of
@@ -40,8 +40,8 @@ Nothing here is started except where marked done. Order matters: 1 first, becaus
 - [x] Contract test: same variables, same report fields, no Kafka tuning in workers, same batch size everywhere
 
 ## 4. Report and checks
-- [ ] Count order violations per user in the consumer report (a sequence number lower than the last of that user)
-- [ ] Show the idle time at the end of a batch (waiting for the slowest group) on the run page
+- [x] Count order violations per user in the consumer report (a sequence number lower than the last of that user)
+- [x] Show the idle time at the end of a batch (waiting for the slowest group) on the run page
 - [x] Live run of all five languages: no losses, no duplicates, no order violations
 
 ## 4b. The statistics are counted the same way everywhere
@@ -73,7 +73,7 @@ again after a crash is not seen as a duplicate; and gaps and duplicates are coun
   logic lives once, in the backend (`analysis.py`), and is tested once
 - [x] Keep the report fields `duplicates` and `gaps` for the UI (computed by the backend), so the pages do not change
 - [x] Test: a fixed list with a lost number, a repeated number and a replayed range gives the exact counts
-- [ ] Add a way to see that it works: a Kafka run with a worker killed in the middle (restart) must show duplicates
+- [x] Add a way to see that it works: a Kafka run with a worker killed in the middle (restart) must show duplicates
 
 ## 4d. The diagrams (keep them, they work)
 The two Mermaid diagrams of the README are liked and stay. They are updated to the batch design and reviewed:
@@ -109,12 +109,12 @@ message "disqualifies" a run, but with commit after the batch a repeat after a c
 - [x] The comparison page keeps the table of every number with the best one in green, and the charts
 
 ## 4f. Other UI improvements to look at
-- [ ] Empty states with one clear next step (no runs yet, no queue yet)
-- [ ] The run page answers three things first: did it finish, was anything lost, how fast; details below
-- [ ] The same units and number formats on every page (MB, ms, messages per second, percent of a core)
-- [ ] Check the light theme on every page (only some were checked)
-- [ ] Long lines in the Vue templates (219) split, the same for the new pages
-- [ ] Keyboard and screen reader basics: labels on icon buttons, visible focus, contrast in both themes
+- [x] Empty states with one clear next step (no runs yet, no queue yet)
+- [x] The run page answers three things first: did it finish, was anything lost, how fast; details below
+- [ ] The same units and number formats on every page (MB, ms, messages per second, percent of a core). Partly done: the speed labels are the same, not every page was audited
+- [x] Check the light theme on every page (only some were checked)
+- [x] Long lines in the Vue templates (219) split, the same for the new pages
+- [ ] Keyboard and screen reader basics: labels on icon buttons, visible focus, contrast in both themes. Partly done: icon buttons are labelled and the focus ring is visible, the contrast was not measured
 
 ## 5. Documentation
 - [x] README: a short section "How this differs from production" (one broker, `acks`, no TLS, no replication)

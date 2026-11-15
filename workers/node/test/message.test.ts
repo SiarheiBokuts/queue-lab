@@ -20,8 +20,11 @@ describe('MessageFactory', () => {
   it('goes round the partitions and counts the sequence per partition', () => {
     const parse = makeHeaderParser('run1');
     const batch = new MessageFactory(options).batch(0, 9);
-    assert.deepEqual(batch.map((m) => m.partition), [1, 2, 3, 0, 1, 2, 3, 0, 1]);
-    const seqOfLast = parse(batch[8]!.value)?.seq;
+    assert.deepEqual(
+      batch.map((m) => m.partition),
+      [1, 2, 3, 0, 1, 2, 3, 0, 1],
+    );
+    const seqOfLast = parse(batch[8]?.value as Buffer)?.seq;
     assert.equal(seqOfLast, 2); // the third message of partition 1
   });
 

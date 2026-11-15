@@ -22,7 +22,9 @@ const nav = [
 
 <template>
   <div class="flex min-h-screen">
-    <aside class="w-56 shrink-0 border-r border-zinc-800 p-4 flex flex-col gap-1 sticky top-0 self-start h-screen overflow-y-auto">
+    <aside
+      class="w-56 shrink-0 border-r border-zinc-800 p-4 flex flex-col gap-1 sticky top-0 self-start h-screen overflow-y-auto"
+    >
       <div class="mb-5 px-1 flex items-center gap-2.5">
         <img src="/logo.svg" alt="" width="34" height="34" style="border-radius: 9px" />
         <div>
@@ -43,21 +45,24 @@ const nav = [
         {{ n.label }}
       </router-link>
       <div class="mt-auto flex flex-col">
-      <button type="button" class="theme-btn" :title="'Theme: ' + theme + ' (click to switch)'" @click="toggleTheme">
-        <Moon v-if="theme === 'dark'" :size="15" /><Sun v-else :size="15" />
-        <span>{{ theme === 'dark' ? 'Dark' : 'Light' }}</span>
-      </button>
-      <div class="lbl px-1 mt-3">
-        <span class="badge" :class="live.connected ? 'ok' : 'bad'">{{ live.connected ? 'Live' : 'Reconnecting' }}</span>
-        <div class="mt-2">Docker: {{ live.dockerOk ? 'connected' : 'not reachable' }}</div>
-        <div v-if="live.version" class="mt-1" style="color: #71717a">queue-lab v{{ live.version }}</div>
-      </div>
+        <button type="button" class="theme-btn" :title="'Theme: ' + theme + ' (click to switch)'" @click="toggleTheme">
+          <Moon v-if="theme === 'dark'" :size="15" /><Sun v-else :size="15" />
+          <span>{{ theme === 'dark' ? 'Dark' : 'Light' }}</span>
+        </button>
+        <div class="lbl px-1 mt-3">
+          <span class="badge" :class="live.connected ? 'ok' : 'bad'">{{
+            live.connected ? 'Live' : 'Reconnecting'
+          }}</span>
+          <div class="mt-2">Docker: {{ live.dockerOk ? 'connected' : 'not reachable' }}</div>
+          <div v-if="live.version" class="mt-1" style="color: #71717a">queue-lab v{{ live.version }}</div>
+        </div>
       </div>
     </aside>
     <main class="flex-1 min-w-0 px-8 py-7 flex flex-col gap-6 mx-auto w-full" style="max-width: 1500px">
       <RunStatusBar />
       <div v-if="!live.dockerOk" class="card" style="border-color: #7f1d1d">
-        <b>Docker is not reachable.</b> Start Docker Desktop, then reload this page. Container actions are unavailable until then.
+        <b>Docker is not reachable.</b> Start Docker Desktop, then reload this page. Container actions are unavailable
+        until then.
       </div>
       <div v-for="w in live.warnings" :key="w" class="card" style="border-color: #78350f">{{ w }}</div>
       <router-view v-slot="{ Component, route }">

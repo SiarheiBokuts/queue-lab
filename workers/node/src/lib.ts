@@ -209,6 +209,47 @@ export function userKey(part: number, i: number, nparts: number, users: number):
   return `user-${part + nparts * (Math.floor(i / nparts) % perPartition)}`;
 }
 
+/**
+ * How long a batch took, and how long of that some groups were done while others still worked (milliseconds).
+ * `started` and `done` are clock readings in milliseconds. A batch without groups (all its messages belonged to
+ * another run) took no time and waited for nobody.
+ */
+export function batchTiming(started: number, done: readonly number[]): { busyMs: number; waitMs: number } {
+  if (done.length === 0) return { busyMs: 0, waitMs: 0 };
+  const last = Math.max(...done);
+  return { busyMs: last - started, waitMs: last - Math.min(...done) };
+}
+
+/** What the handling step needs to know about a message: whose it is and which one it is. */
+export interface Item {
+  key: Buffer | null; // the user
+  producer: number; // which sender
+  seq: number; // the number of the message in its stream
+}
+
+/**
+ * Checks that the messages of one user are handled in the order they were sent.
+ *
+ * For every (user, sender) it remembers the number of the message handled last. A message with a lower number than that
+ * was handled too late: it is counted as an order violation. A well built consumer never has one.
+ */
+export class OrderCheck {
+  violations = 0;
+  private readonly last = new Map<string, number>();
+
+  /** Remember that `item` is handled now. Returns false when it came after a later message of the same user. */
+  check(item: Item): boolean {
+    const key = `${item.key === null ? '' : item.key.toString('latin1')}|${item.producer}`;
+    const last = this.last.get(key);
+    if (last !== undefined && item.seq < last) {
+      this.violations += 1;
+      return false;
+    }
+    this.last.set(key, item.seq);
+    return true;
+  }
+}
+
 /** Group messages by their key (the user). The order inside a group is the order they were sent in. */
 export function groupByUser<T extends { key: Buffer | null }>(messages: readonly T[]): T[][] {
   const groups = new Map<string, T[]>();

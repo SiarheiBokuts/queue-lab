@@ -16,11 +16,15 @@ const { form, compare, producerFollows } = useRunForm()
     </div>
     <div v-else class="lbl">The sender follows the workers' language.</div>
     <div class="grid grid-cols-2 gap-3">
-      <label class="field">How many (1-8)
-        <Hint text="Several sender containers share the load. Use more than one when a single sender cannot reach the rate you want." />
-        <input class="input" type="number" min="1" max="8" v-model.number="form.producer.count" />
+      <label class="field"
+        >How many
+        <Hint
+          text="Several sender containers share the load. Use more than one when a single sender cannot reach the rate you want."
+        />
+        <input class="input" type="number" min="1" v-model.number="form.producer.count" />
       </label>
-      <label class="field">Memory each (MB)
+      <label class="field"
+        >Memory each (MB)
         <input class="input" type="number" min="128" step="64" v-model.number="form.producer.memory_mb" />
       </label>
     </div>

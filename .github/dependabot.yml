@@ -7,4 +7,9 @@ updates:
   - { package-ecosystem: cargo, directory: /workers/rust, schedule: { interval: weekly } }
   - { package-ecosystem: maven, directory: /workers/java, schedule: { interval: weekly } }
   - { package-ecosystem: docker, directory: /, schedule: { interval: weekly } }
+  - { package-ecosystem: docker, directory: /workers/python, schedule: { interval: weekly } }
+  - { package-ecosystem: docker, directory: /workers/node, schedule: { interval: weekly } }
+  - { package-ecosystem: docker, directory: /workers/go, schedule: { interval: weekly } }
+  - { package-ecosystem: docker, directory: /workers/rust, schedule: { interval: weekly } }
+  - { package-ecosystem: docker, directory: /workers/java, schedule: { interval: weekly } }
   - { package-ecosystem: github-actions, directory: /, schedule: { interval: weekly } }

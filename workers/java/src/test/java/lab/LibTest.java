@@ -19,7 +19,9 @@ class LibTest {
 
   @Test
   void bucketBoundaries() {
-    double[][] cases = {{0, 0}, {0.5, 0}, {0.51, 1}, {1, 1}, {4.9, 3}, {5, 3}, {10, 4}, {10.1, 5}, {99999, 5}};
+    double[][] cases = {
+      {0, 0}, {0.5, 0}, {0.51, 1}, {1, 1}, {4.9, 3}, {5, 3}, {10, 4}, {10.1, 5}, {99999, 5}
+    };
     for (double[] c : cases) assertEquals((int) c[1], Lib.bucket(c[0], EDGES), "latency " + c[0]);
   }
 
@@ -39,8 +41,12 @@ class LibTest {
 
   @Test
   void malformedHeadersAreRejected() {
-    for (String garbage : new String[] {"", "no separators", "a|b|c", "run|0|x|y|z|pad", "run|0|1|2|notanumber|pad"}) {
-      assertTrue(Lib.parseHeader(garbage.getBytes(StandardCharsets.ISO_8859_1), "run").isEmpty(), garbage);
+    for (String garbage :
+        new String[] {
+          "", "no separators", "a|b|c", "run|0|x|y|z|pad", "run|0|1|2|notanumber|pad"
+        }) {
+      assertTrue(
+          Lib.parseHeader(garbage.getBytes(StandardCharsets.ISO_8859_1), "run").isEmpty(), garbage);
     }
   }
 
@@ -56,7 +62,9 @@ class LibTest {
   void aSkippedNumberLeavesAGapBetweenTwoRanges() {
     var seen = new Lib.SeqRanges();
     for (long s : new long[] {0, 1, 2, 5, 6}) seen.observe(0, 0, s);
-    assertEquals(java.util.List.of(java.util.List.of(0L, 2L), java.util.List.of(5L, 6L)), seen.report().get("0:0"));
+    assertEquals(
+        java.util.List.of(java.util.List.of(0L, 2L), java.util.List.of(5L, 6L)),
+        seen.report().get("0:0"));
   }
 
   @Test
@@ -79,7 +87,8 @@ class LibTest {
   @Test
   void streamsOfDifferentSendersAndPartitionsDoNotClash() {
     var seen = new Lib.SeqRanges();
-    for (long s = 0; s < 3; s++) assertTrue(seen.observe(0, 5, s) && seen.observe(1, 5, s) && seen.observe(0, 6, s));
+    for (long s = 0; s < 3; s++)
+      assertTrue(seen.observe(0, 5, s) && seen.observe(1, 5, s) && seen.observe(0, 6, s));
     assertEquals(0, seen.repeats);
     assertEquals(3, seen.report().size());
   }
@@ -105,12 +114,29 @@ class LibTest {
 
   @Test
   void kafkaSettingsAreRenamedOrConvertedForTheJavaClient() {
-    Properties p = KafkaConf.translateOnly(Map.of("fetch.wait.max.ms", 50, "batch.num.messages", 10000,
-        "queue.buffering.max.messages", 300000, "acks", "1", "enable.auto.commit", true), 256);
+    Properties p =
+        KafkaConf.translateOnly(
+            Map.of(
+                "fetch.wait.max.ms",
+                50,
+                "batch.num.messages",
+                10000,
+                "queue.buffering.max.messages",
+                300000,
+                "acks",
+                "1",
+                "enable.auto.commit",
+                true),
+            256);
     assertEquals("50", p.get("fetch.max.wait.ms").toString());
-    assertEquals("1048576", KafkaConf.translateOnly(Map.of("fetch.message.max.bytes", 1048576), 256).get("max.partition.fetch.bytes").toString());
+    assertEquals(
+        "1048576",
+        KafkaConf.translateOnly(Map.of("fetch.message.max.bytes", 1048576), 256)
+            .get("max.partition.fetch.bytes")
+            .toString());
     assertEquals("2560000", p.get("batch.size").toString()); // 10000 messages x 256 bytes
-    assertEquals(String.valueOf(64L * 1024 * 1024), p.get("buffer.memory").toString()); // capped at 64 MiB
+    assertEquals(
+        String.valueOf(64L * 1024 * 1024), p.get("buffer.memory").toString()); // capped at 64 MiB
     assertEquals("1", p.get("acks"));
     assertEquals("true", p.get("enable.auto.commit"));
   }
@@ -128,8 +154,60 @@ class LibTest {
 
   @Test
   void messagesAreGroupedByUserAndKeepTheirOrder() {
-    var keys = java.util.List.of("user-1".getBytes(), "user-2".getBytes(), "user-1".getBytes(), "user-1".getBytes());
-    assertEquals(java.util.List.of(java.util.List.of(0, 2, 3), java.util.List.of(1)), Lib.groupByUser(keys));
+    var items =
+        java.util.List.of(
+            item("user-1", 0, 1), item("user-2", 0, 2), item("user-1", 0, 3), item("user-1", 0, 4));
+    var groups = Lib.groupByUser(items);
+    assertEquals(2, groups.size());
+    assertEquals(java.util.List.of(1L, 3L, 4L), groups.get(0).stream().map(Lib.Item::seq).toList());
+    assertEquals(java.util.List.of(2L), groups.get(1).stream().map(Lib.Item::seq).toList());
     assertTrue(Lib.groupByUser(java.util.List.of()).isEmpty());
+  }
+
+  private static Lib.Item item(String user, int producer, long seq) {
+    return new Lib.Item(user.getBytes(), producer, seq);
+  }
+
+  @Test
+  void aBatchTakesAsLongAsItsSlowestGroup() {
+    var timing =
+        Lib.batchTiming(
+            1_000_000_000L, java.util.List.of(1_500_000_000L, 3_000_000_000L, 2_000_000_000L));
+    assertEquals(2000.0, timing[0], 0.001);
+    assertEquals(1500.0, timing[1], 0.001);
+    assertEquals(
+        0.0,
+        Lib.batchTiming(0L, java.util.List.of(400_000_000L))[1],
+        0.001); // one group: nobody waits
+  }
+
+  @Test
+  void aBatchWithoutGroupsTakesNoTimeAndDoesNotCrash() {
+    var timing = Lib.batchTiming(5L, java.util.List.of());
+    assertEquals(0.0, timing[0] + timing[1], 0.0); // all messages belonged to another run
+  }
+
+  @Test
+  void aUserHandledInOrderHasNoViolation() {
+    var order = new Lib.OrderCheck();
+    for (long seq : new long[] {1, 2, 3, 3, 10})
+      assertTrue(order.check(item("user-1", 0, seq))); // a repeat is fine
+    assertEquals(0, order.violations());
+  }
+
+  @Test
+  void aMessageHandledAfterALaterOneIsAViolation() {
+    var order = new Lib.OrderCheck();
+    order.check(item("user-1", 0, 5));
+    assertTrue(!order.check(item("user-1", 0, 4)));
+    assertEquals(1, order.violations());
+  }
+
+  @Test
+  void usersAndSendersAreCheckedIndependently() {
+    var order = new Lib.OrderCheck();
+    order.check(item("user-1", 0, 9));
+    assertTrue(order.check(item("user-2", 0, 1)) && order.check(item("user-1", 1, 1)));
+    assertEquals(0, order.violations());
   }
 }

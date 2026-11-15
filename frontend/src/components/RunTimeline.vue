@@ -16,6 +16,15 @@ const segs = computed(() => {
   }
   return out
 })
+/** The moments of the run that are marked on the bar and named below it. */
+const marks = computed(() => {
+  const w = props.win || {}
+  const out: { label: string; at: number; color: string }[] = []
+  if (w.send_start != null) out.push({ label: 'First message sent', at: w.send_start, color: '#c4b5fd' })
+  if (w.send_end != null) out.push({ label: 'Sending done', at: w.send_end, color: '#a78bfa' })
+  if (w.last_processed != null) out.push({ label: 'Last message processed', at: w.last_processed, color: '#6ee7b7' })
+  return out
+})
 const sendRate = computed(() => (props.win?.send_s ? Math.round(props.sent / props.win.send_s) : null))
 const e2eRate = computed(() => (props.win?.total_s ? Math.round(props.received / props.win.total_s) : null))
 </script>
@@ -27,35 +36,119 @@ const e2eRate = computed(() => (props.win?.total_s ? Math.round(props.received /
       <span class="lbl">from the first message sent to the last one processed</span>
     </div>
 
-    <div style="position: relative; height: 38px; background: #0f0f12; border-radius: 8px; overflow: hidden">
-      <div
-        v-for="s in segs"
-        :key="s.label"
-        :style="{ position: 'absolute', top: 0, bottom: 0, left: pct(s.from) + '%', width: Math.max(0.8, pct(s.to) - pct(s.from)) + '%', background: s.color, opacity: 0.85 }"
-        :title="s.label + ': ' + (s.to - s.from).toFixed(2) + ' s'"
+    <div class="bar-wrap">
+      <div class="bar">
+        <div
+          v-for="s in segs"
+          :key="s.label"
+          class="seg"
+          :style="{ left: pct(s.from) + '%', width: Math.max(0.8, pct(s.to) - pct(s.from)) + '%', background: s.color }"
+          :title="s.label + ': ' + (s.to - s.from).toFixed(2) + ' s'"
+        />
+      </div>
+      <!-- A thin line over the bar at every moment named below -->
+      <i
+        v-for="m in marks"
+        :key="m.label"
+        class="tick"
+        :style="{ left: pct(m.at) + '%', background: m.color }"
+        aria-hidden="true"
       />
     </div>
-    <div class="relative" style="height: 34px; margin-top: 4px">
-      <div v-if="win.send_start != null" class="lbl" :style="{ position: 'absolute', left: pct(win.send_start) + '%', transform: 'translateX(-2px)', whiteSpace: 'nowrap' }">
-        ▲ first send<br />{{ win.send_start }} s
+
+    <!-- The moments, in one row: they never overlap, however close they are on the bar -->
+    <div class="moments">
+      <div v-for="m in marks" :key="m.label" class="moment">
+        <span class="dot" :style="{ background: m.color }" />
+        <span class="lbl">{{ m.label }}</span>
+        <b>{{ m.at }} s</b>
       </div>
-      <div v-if="win.send_end != null" class="lbl" :style="{ position: 'absolute', left: pct(win.send_end) + '%', transform: 'translateX(-50%)', whiteSpace: 'nowrap', textAlign: 'center' }">
-        ▲ sending done<br />{{ win.send_end }} s
-      </div>
-      <div v-if="win.last_processed != null" class="lbl" :style="{ position: 'absolute', right: '0', whiteSpace: 'nowrap', textAlign: 'right' }">
-        all processed ▲<br />{{ win.last_processed }} s
-      </div>
-    </div>
-    <div class="flex gap-4 mt-1 lbl flex-wrap">
-      <span><b class="inline-block w-2 h-2 rounded-sm mr-1" style="background: #8b5cf6" />Sending</span>
-      <span><b class="inline-block w-2 h-2 rounded-sm mr-1" style="background: #10b981" />Consumers catching up after sending ended</span>
     </div>
 
+    <div class="flex gap-4 mt-3 lbl flex-wrap">
+      <span><b class="inline-block w-2 h-2 rounded-sm mr-1" style="background: #8b5cf6" />Sending</span>
+      <span
+        ><b class="inline-block w-2 h-2 rounded-sm mr-1" style="background: #10b981" />Consumers catching up after
+        sending ended</span
+      >
+    </div>
     <div class="grid gap-2.5 mt-4" style="grid-template-columns: repeat(auto-fit, minmax(160px, 1fr))">
-      <div class="tile"><div class="lbl">Sending took</div><div class="val">{{ win.send_s }} s</div><div class="lbl">{{ fmt(sendRate) }} msg/s</div></div>
-      <div class="tile"><div class="lbl">First send to last processed</div><div class="val">{{ win.total_s ?? '-' }} s</div><div class="lbl">{{ fmt(e2eRate) }} msg/s end to end</div></div>
-      <div class="tile"><div class="lbl">Tail after sending ended</div><div class="val">{{ win.drain_s ?? '-' }} s</div><div class="lbl">{{ (win.drain_s ?? 0) > 1.5 ? 'consumers were behind' : 'consumers kept up' }}</div></div>
-      <div class="tile"><div class="lbl">First message processed after</div><div class="val">{{ win.first_processed != null && win.send_start != null ? (win.first_processed - win.send_start).toFixed(2) : '-' }} s</div><div class="lbl">startup latency</div></div>
+      <div class="tile">
+        <div class="lbl">Sending took</div>
+        <div class="val">{{ win.send_s }} s</div>
+        <div class="lbl">{{ fmt(sendRate) }} msg/s</div>
+      </div>
+      <div class="tile">
+        <div class="lbl">First send to last processed</div>
+        <div class="val">{{ win.total_s ?? '-' }} s</div>
+        <div class="lbl">{{ fmt(e2eRate) }} msg/s end to end</div>
+      </div>
+      <div class="tile">
+        <div class="lbl">Tail after sending ended</div>
+        <div class="val">{{ win.drain_s ?? '-' }} s</div>
+        <div class="lbl">{{ (win.drain_s ?? 0) > 1.5 ? 'consumers were behind' : 'consumers kept up' }}</div>
+      </div>
+      <div class="tile">
+        <div class="lbl">First message processed after</div>
+        <div class="val">
+          {{
+            win.first_processed != null && win.send_start != null
+              ? (win.first_processed - win.send_start).toFixed(2)
+              : '-'
+          }}
+          s
+        </div>
+        <div class="lbl">startup latency</div>
+      </div>
     </div>
   </div>
 </template>
+
+<style scoped>
+.bar-wrap {
+  position: relative;
+}
+.bar {
+  position: relative;
+  height: 40px;
+  background: #0f0f12;
+  border: 1px solid #27272a;
+  border-radius: 10px;
+  overflow: hidden;
+}
+.seg {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  opacity: 0.9;
+}
+.tick {
+  position: absolute;
+  top: -5px;
+  bottom: -5px;
+  width: 2px;
+  margin-left: -1px;
+  border-radius: 2px;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.35);
+}
+.moments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 24px;
+  margin-top: 12px;
+}
+.moment {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 10px;
+  border: 1px solid #27272a;
+  border-radius: 999px;
+  font-size: 12px;
+}
+.dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+}
+</style>

@@ -106,7 +106,7 @@ function createRunForm() {
   const duration = computed({
     get: () => (form.rate > 0 ? Math.round(form.messages / form.rate) : 0),
     set: (seconds: number) => {
-      if (form.rate > 0 && seconds > 0) form.messages = Math.min(50_000_000, Math.round(form.rate * seconds))
+      if (form.rate > 0 && seconds > 0) form.messages = Math.round(form.rate * seconds)
     },
   })
   const rateMibS = computed(() => (form.rate * form.message_size) / MIB)

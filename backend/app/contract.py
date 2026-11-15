@@ -22,7 +22,8 @@ PRODUCER_ONLY = ("MESSAGES", "MSG_SIZE", "PARTITIONS", "PRODUCER_INDEX", "RATE",
 
 # What workers send back: one JSON report per second, the same fields from every language. The backend reads exactly these.
 CONSUMER_REPORT = ("runId", "worker", "role", "lang", "ts", "ready", "assigned", "received", "duplicates", "ranges", "overflow", "errors",
-                   "offsets", "hist", "final", "firstAt", "lastAt", "maxLatencyMs")  # fmt: skip
+                   "offsets", "hist", "final", "firstAt", "lastAt", "maxLatencyMs", "orderViolations", "batchBusyMs",
+                   "batchWaitMs")  # fmt: skip
 PRODUCER_REPORT = ("runId", "worker", "role", "lang", "ts", "sent", "delivered", "errors", "done", "started", "finished")
 
 

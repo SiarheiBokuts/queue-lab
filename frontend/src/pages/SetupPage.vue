@@ -29,7 +29,9 @@ const { presets } = provideRunForm()
   <div class="card">
     <div class="lbl mb-2">Start from a ready-made setup, then change anything you like.</div>
     <div class="flex gap-3 flex-wrap">
-      <button v-for="p in presets" :key="p.name" type="button" class="btn" :title="p.note" @click="p.apply()">{{ p.name }}</button>
+      <button v-for="p in presets" :key="p.name" type="button" class="btn" :title="p.note" @click="p.apply()">
+        {{ p.name }}
+      </button>
     </div>
   </div>
 

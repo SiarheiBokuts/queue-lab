@@ -21,5 +21,8 @@ defineProps<{ text: string }>()
   cursor: help;
   transition: color 0.15s;
 }
-.hint:hover, .hint:focus { color: #60a5fa; outline: none; }
+.hint:hover,
+.hint:focus {
+  color: #60a5fa;
+}
 </style>

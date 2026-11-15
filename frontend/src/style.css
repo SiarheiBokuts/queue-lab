@@ -8,6 +8,7 @@
   --line: #27272a;
   --text: #e4e4e7;
   --muted: #a1a1aa;
+  --faint: #8d8d96; /* hints and pending items: at least 4.5:1 on the dark panels */
   --blue: #3b82f6;
   --green: #10b981;
   --amber: #f59e0b;
@@ -146,7 +147,7 @@ details[open] > summary { margin-bottom: 2px; }
    The neutral colours are variables; a few colours are written inline in components, those are mapped here. */
 :root[data-theme="light"] {
   color-scheme: light;
-  --bg: #f4f5f8; --panel: #ffffff; --panel-2: #f0f1f5; --line: #e2e3ea; --text: #1a1a1f; --muted: #5f6672;
+  --bg: #f4f5f8; --panel: #ffffff; --panel-2: #f0f1f5; --line: #e2e3ea; --text: #1a1a1f; --muted: #5f6672; --faint: #5f6672;
 }
 [data-theme="light"] body { background: var(--bg); color: var(--text); }
 [data-theme="light"] .card { box-shadow: 0 1px 2px rgba(20, 24, 40, 0.06), 0 12px 28px -22px rgba(20, 24, 40, 0.3); }
@@ -197,7 +198,12 @@ details[open] > summary { margin-bottom: 2px; }
 [data-theme="light"] [style*="#3b0d0d"] { background: #fee2e2 !important; }
 [data-theme="light"] [style*="#0c1a33"] { background: #e8f0ff !important; }
 [data-theme="light"] .text-zinc-100, [data-theme="light"] .text-zinc-200, [data-theme="light"] .text-zinc-300 { color: #26262c !important; }
-[data-theme="light"] .text-zinc-400, [data-theme="light"] .text-zinc-500, [data-theme="light"] .text-zinc-600 { color: #6b7280 !important; }
+[data-theme="light"] .text-zinc-400, [data-theme="light"] .text-zinc-500, [data-theme="light"] .text-zinc-600 { color: var(--muted) !important; }
+/* Muted text of the dark theme: zinc-500 and the inline #71717a are about 4:1, so they are lifted to --faint. */
+.text-zinc-500, .text-zinc-600 { color: var(--faint); }
+[style*="color: #71717a"], [style*="color: rgb(113, 113, 122)"] { color: var(--faint) !important; }
+/* The coloured language names above the comparison table are too light on white */
+[data-theme="light"] table.tbl th[style*="color"] { filter: brightness(0.68) saturate(1.15); }
 [data-theme="light"] .text-red-300 { color: #b91c1c !important; }
 [data-theme="light"] .text-amber-400 { color: #b45309 !important; }
 [data-theme="light"] .text-emerald-400 { color: #047857 !important; }
@@ -241,3 +247,5 @@ label.field { margin: 0; }
 [data-theme="light"] .chip-lang { background: #fff !important; border-color: #d4d4d8 !important; color: #52525b !important; }
 [data-theme="light"] .chip-lang.done { color: #26262c !important; border-color: #6ee7b7 !important; }
 [data-theme="light"] .chip-lang.next { background: #dbeafe !important; border-color: #3b82f6 !important; color: #1d4ed8 !important; }
+[data-theme="light"] .bar-wrap .bar { background: #eceef3 !important; border-color: #d4d4d8 !important; }
+[data-theme="light"] .moments .moment { border-color: #d4d4d8 !important; }

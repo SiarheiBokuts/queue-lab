@@ -29,6 +29,16 @@ def test_a_container_with_a_cpu_ceiling_gets_exactly_that_ceiling() -> None:
     assert fake.kwargs["nano_cpus"] == 1_500_000_000
 
 
+def test_workers_and_senders_start_without_capabilities_and_the_broker_with_docker_defaults() -> None:
+    svc, fake = service()
+    for role in ("consumer", "producer"):
+        svc.run_container("c", "img", role, "q", "r", "go", {}, 300)
+        assert fake.kwargs["cap_drop"] == ["ALL"]
+        assert fake.kwargs["security_opt"] == ["no-new-privileges"]
+    svc.run_container("k", "img", "broker", None, None, "kafka", {}, 1024)
+    assert "cap_drop" not in fake.kwargs and "security_opt" not in fake.kwargs
+
+
 def test_the_broker_is_not_limited() -> None:
     svc, fake = service()
     svc.run_container("k", "img", "broker", None, None, "kafka", {}, 1024)

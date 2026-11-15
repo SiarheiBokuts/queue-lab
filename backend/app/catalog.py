@@ -12,7 +12,7 @@ SCENARIOS = [
         "summary": "The worker receives each message, checks it and does nothing else. It measures the raw speed of Kafka plus the client library.",
         "simulates": "A consumer whose real work is free, for example it only forwards the message somewhere very fast.",
         "does": [
-            "Reads the message and checks its sequence number to detect loss and duplicates.",
+            "Reads the message and remembers its number, so the lab can count lost and repeated messages.",
             "Records how long the message waited since it was sent (latency).",
             "Then immediately takes the next one.",
         ],
@@ -109,7 +109,7 @@ CONF_NOTES = {
 COMMON_WORK = [
     "Read the header of the message (run, sender, partition, sequence number, send time) straight from its bytes.",
     "Count the message as received and remember when the first one arrived.",
-    "Check the sequence number of its stream: a jump means lost messages, a repeat means a duplicate.",
+    "Remember the number of the message in its stream (sender and partition) as part of a range, so the lab can count lost and repeated messages exactly.",
     "Put the latency (now minus send time) into a histogram bucket and remember the slowest one.",
     "Remember how far this partition has been read, which gives the messages waiting.",
     "Hand the message to the scenario step (wait, work with JSON or nothing): up to the chosen number at once, messages of one user in order.",

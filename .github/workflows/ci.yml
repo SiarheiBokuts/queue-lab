@@ -5,32 +5,135 @@ on:
     branches: [main]
   pull_request:
 
+# Nothing here needs more than to read the code.
 permissions:
   contents: read
+
+# A new push to the same branch or pull request cancels the run that is still going.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   test:
     name: ${{ matrix.name }}
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
         include:
-          - { name: Backend (ruff, pytest), args: "--target backend-test ." }
-          - { name: Frontend (vue-tsc, vitest), args: "--target web-test ." }
-          - { name: Worker Python, args: "-f workers/python/Dockerfile.test workers/python" }
-          - { name: Worker Node.js, args: "-f workers/node/Dockerfile.test workers/node" }
-          - { name: Worker Go, args: "-f workers/go/Dockerfile.test workers/go" }
-          - { name: Worker Rust, args: "-f workers/rust/Dockerfile.test workers/rust" }
-          - { name: Worker Java, args: "-f workers/java/Dockerfile.test workers/java" }
+          - { name: "Backend: mistakes and style (ruff), unit tests (pytest)", args: "--target backend-test ." }
+          - { name: "Frontend: type check (vue-tsc), unit tests (vitest)", args: "--target web-test ." }
+          - { name: "Python worker: mistakes and style (ruff), unit tests (pytest)", args: "-f workers/python/Dockerfile.test workers/python" }
+          - { name: "Node.js worker: mistakes and style (Biome), type check (tsc), unit tests (node --test)", args: "-f workers/node/Dockerfile.test workers/node" }
+          - { name: "Go worker: formatting (gofmt), suspicious code (go vet), unit tests (go test)", args: "-f workers/go/Dockerfile.test workers/go" }
+          - { name: "Rust worker: formatting (rustfmt), lints (clippy), unit tests (cargo test)", args: "-f workers/rust/Dockerfile.test workers/rust" }
+          - { name: "Java worker: formatting (google-java-format), compiler warnings (javac), unit tests (JUnit)", args: "-f workers/java/Dockerfile.test workers/java" }
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - name: Test
         run: docker build ${{ matrix.args }}
 
-  image:
-    name: The app image builds
+  images:
+    name: "Build the ${{ matrix.image }} image (docker build)"
     runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { image: "app", args: "-t queuelab-app ." }
+          - { image: "Python worker", args: "-f workers/python/Dockerfile workers/python" }
+          - { image: "Node.js worker", args: "-f workers/node/Dockerfile workers/node" }
+          - { image: "Go worker", args: "-f workers/go/Dockerfile workers/go" }
+          - { image: "Rust worker", args: "-f workers/rust/Dockerfile workers/rust" }
+          - { image: "Java worker", args: "-f workers/java/Dockerfile workers/java" }
     steps:
       - uses: actions/checkout@v7
-      - run: docker build -t queuelab-app .
+        with:
+          persist-credentials: false
+      # The unit tests do not install the Kafka libraries, so only a build shows that a worker image can be made.
+      - run: docker build ${{ matrix.args }}
+
+  e2e:
+    name: "Click through the real app in a browser (Playwright)"
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Start the app
+        run: |
+          docker compose up --build -d
+          for _ in $(seq 1 60); do
+            curl -fsS http://localhost:8080/healthz>/dev/null 2>&1 && exit 0
+            sleep 2
+          done
+          docker compose logs
+          exit 1
+      - name: Fast tests (pages, form, security)
+        run: docker compose -f compose.e2e.yaml run --rm e2e
+      # The slow test builds the worker images and runs real Kafka runs, so it is run only on main.
+      - name: Slow test (a real run in two languages)
+        if: github.ref == 'refs/heads/main'
+        run: docker compose -f compose.e2e.yaml run --rm e2e npm run test:slow
+      - name: Show the app log if something failed
+        if: failure()
+        run: docker compose logs --tail 200
+
+  secrets:
+    name: "Look for leaked secrets in the whole history (gitleaks)"
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0 # the whole history is scanned, not only the last commit
+          persist-credentials: false
+      - name: Scan the repository for secrets
+        run: docker run --rm -v "$PWD:/repo" zricethezav/gitleaks:v8.30.1 detect --source /repo --no-banner --redact
+
+  dependencies:
+    name: "Look for known vulnerabilities in the dependencies (npm audit, pip-audit)"
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Frontend (npm audit)
+        run: docker run --rm -v "$PWD/frontend:/app" -w /app node:24-slim npm audit --omit=dev --audit-level=high
+      - name: Node.js worker (npm audit)
+        run: docker run --rm -v "$PWD/workers/node:/app" -w /app node:24-slim npm audit --omit=dev --audit-level=high
+      - name: Backend (pip-audit)
+        run: docker run --rm -v "$PWD/backend:/app" -w /app python:3.14-slim-trixie sh -c "pip install -q pip-audit && pip-audit -r requirements.txt"
+
+  dockerfiles:
+    name: "Check the Dockerfiles for mistakes (hadolint)"
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Lint every Dockerfile
+        run: |
+          for f in Dockerfile workers/*/Dockerfile; do
+            echo "== $f"
+            docker run --rm -i hadolint/hadolint:v2.15.1 hadolint --failure-threshold warning - < "$f"
+          done
+
+  workflows:
+    name: "Check the workflow files for mistakes (actionlint)"
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Lint the workflow files
+        run: docker run --rm -v "$PWD:/repo" -w /repo rhysd/actionlint:1.7.12

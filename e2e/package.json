@@ -1,0 +1,16 @@
+{
+  "name": "queue-lab-e2e",
+  "private": true,
+  "version": "1.0.0",
+  "description": "End-to-end tests and the README screenshots, run against the running app with Playwright",
+  "type": "module",
+  "scripts": {
+    "test": "playwright test --project=fast",
+    "test:slow": "playwright test --project=slow",
+    "test:all": "playwright test",
+    "screenshots": "node screenshots.mjs"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.60.0"
+  }
+}

@@ -24,15 +24,25 @@ const text = computed(() => {
     if (cmp.value.cooldown_left > 0) return `Comparison: pause ${cmp.value.cooldown_left} s before the next run`
     return `Comparison ${cmp.value.step} of ${cmp.value.total} (${lang})`
   }
-  return run.value?.status === 'running' ? 'Messages are being sent and processed' : `Setting up: step ${stepIndex.value + 1} of ${steps.value.length}, ${stepLabel.value}`
+  return run.value?.status === 'running'
+    ? 'Messages are being sent and processed'
+    : `Setting up: step ${stepIndex.value + 1} of ${steps.value.length}, ${stepLabel.value}`
 })
 </script>
 
 <template>
-  <router-link v-if="visible" to="/" class="card flex items-center gap-3 flex-wrap" style="border-color: #1d4ed8; background: #0c1a33; text-decoration: none">
+  <router-link
+    v-if="visible"
+    to="/"
+    class="card flex items-center gap-3 flex-wrap"
+    style="border-color: #1d4ed8; background: #0c1a33; text-decoration: none"
+  >
     <span class="pulse" />
     <b>Running</b>
-    <span v-if="run" class="inline-flex items-center gap-1.5"><LangIcon :id="run.config.workers.lang" :size="15" />{{ run.config.queue }} · {{ workersText(run.config.workers, run.config.scenario.type) }}</span>
+    <span v-if="run" class="inline-flex items-center gap-1.5"
+      ><LangIcon :id="run.config.workers.lang" :size="15" />{{ run.config.queue }} ·
+      {{ workersText(run.config.workers, run.config.scenario.type) }}</span
+    >
     <span class="lbl">{{ text }}</span>
     <span class="ml-auto" style="color: #93c5fd">Open the live dashboard →</span>
   </router-link>
@@ -47,7 +57,14 @@ const text = computed(() => {
   animation: pulse 1.2s ease-in-out infinite;
 }
 @keyframes pulse {
-  0%, 100% { opacity: 1; transform: scale(1); }
-  50% { opacity: 0.4; transform: scale(0.7); }
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.4;
+    transform: scale(0.7);
+  }
 }
 </style>

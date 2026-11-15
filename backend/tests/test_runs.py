@@ -116,7 +116,7 @@ def test_handle_report_updates_the_worker_and_the_histograms() -> None:
     report = {
         "runId": "r1",
         "role": "consumer",
-        "worker": "w",
+        "worker": "queuelab-q-w1",
         "lang": "python",
         "ts": 10.0,
         "received": 100,
@@ -135,7 +135,7 @@ def test_handle_report_updates_the_worker_and_the_histograms() -> None:
     run["hist_sec"] = [0] * (len(EDGES) + 1)
     m.handle_report(report)
     m.handle_report(report | {"ts": 11.0, "received": 300})
-    w = run["workers"]["w"]
+    w = run["workers"]["queuelab-q-w1"]
     assert w["received"] == 300
     assert w["rate"] == 200  # 200 messages in 1 second
     assert w["max_latency"] == 3.5
@@ -272,6 +272,32 @@ def test_notes_report_loss_as_a_fact() -> None:
     run["workers"]["queuelab-q-w1"]["received"] = 400  # 100 messages never arrived
     out = analysis.notes(run, analysis.totals(run), summary_for(run, lost=100))
     assert any("100 messages were lost" in t for t in texts(out, "bad"))
+
+
+def test_notes_report_messages_handled_out_of_order() -> None:
+    run = make_run()
+    out = analysis.notes(run, analysis.totals(run), summary_for(run, order_violations=3))
+    assert any("3 messages were handled after a later message" in t for t in texts(out, "bad"))
+
+
+def test_the_batch_wait_is_the_share_of_batch_time_spent_waiting_for_the_slowest_user() -> None:
+    workers = [{"batch_busy_ms": 1000, "batch_wait_ms": 250}, {"batch_busy_ms": 1000, "batch_wait_ms": 0}]
+    assert analysis.batch_wait_pct(workers) == 12.5
+    assert analysis.batch_wait_pct([]) is None
+
+
+def test_totals_sum_the_order_violations_of_all_workers() -> None:
+    run = make_run()
+    run["workers"]["queuelab-q-w1"]["order_violations"] = 2
+    run["workers"]["queuelab-q-w2"]["order_violations"] = 1
+    assert analysis.totals(run)["order_violations"] == 3
+
+
+def test_notes_explain_that_a_worker_stopped_during_the_run() -> None:
+    run = make_run()
+    run["stopped_workers"] = ["queuelab-q-w1"]
+    out = analysis.notes(run, analysis.totals(run), summary_for(run))
+    assert any("queuelab-q-w1" in t and "can be too high" in t for t in texts(out, "warn"))
 
 
 def test_notes_say_when_a_run_did_not_finish() -> None:

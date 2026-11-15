@@ -5,7 +5,7 @@ use serde_json::json;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
-use crate::logic::{bucket, Header, SeqRanges};
+use crate::logic::{bucket, Header, OrderCheck, SeqRanges};
 use crate::reporting::{now_seconds, post};
 use crate::settings::get;
 
@@ -19,6 +19,10 @@ pub struct Stats {
     last_at: Option<f64>,
     max_latency_ms: f64,
     seen: SeqRanges, // which message numbers arrived: the lab counts lost and repeated ones from it
+    /// The messages of a user must be handled in the order they were sent.
+    pub order: Arc<OrderCheck>,
+    batch_busy_ms: f64, // time spent handling batches
+    batch_wait_ms: f64, // of which some groups were done and the others still worked
 }
 
 impl Stats {
@@ -32,7 +36,16 @@ impl Stats {
             last_at: None,
             max_latency_ms: 0.0,
             seen: SeqRanges::default(),
+            order: Arc::new(OrderCheck::default()),
+            batch_busy_ms: 0.0,
+            batch_wait_ms: 0.0,
         }))
+    }
+
+    /// Remember how long a batch took and how much of it was spent waiting for the slowest group.
+    pub fn add_batch(&mut self, busy_ms: f64, wait_ms: f64) {
+        self.batch_busy_ms += busy_ms;
+        self.batch_wait_ms += wait_ms;
     }
 
     pub fn count_error(&mut self) {
@@ -44,7 +57,8 @@ impl Stats {
         self.received += 1;
         self.first_at.get_or_insert(arrived_ms / 1000.0);
         self.last_at = Some(now_seconds());
-        self.seen.observe(header.producer, partition as usize, header.seq);
+        self.seen
+            .observe(header.producer, partition as usize, header.seq);
         self.offsets.insert(partition.to_string(), offset + 1); // the next offset to read, used for the lag
         let latency = arrived_ms - header.sent_ms; // from "sent" to "received"
         self.hist[bucket(latency, &get().edges)] += 1;
@@ -63,7 +77,9 @@ pub fn report(state: &Mutex<Stats>, consumer: &BaseConsumer, final_report: bool)
     let payload = json!({
         "runId": get().run_id, "worker": get().worker_id, "role": "consumer", "lang": "rust", "ts": now_seconds(),
         "ready": !assigned.is_empty(), "assigned": assigned, "received": s.received,
-        "duplicates": s.seen.repeats, "ranges": s.seen.report(), "overflow": s.seen.overflow, "errors": s.errors, "offsets": s.offsets,
+        "duplicates": s.seen.repeats, "ranges": s.seen.report(), "overflow": s.seen.overflow,
+        "orderViolations": s.order.violations(), "batchBusyMs": (s.batch_busy_ms * 10.0).round() / 10.0,
+        "batchWaitMs": (s.batch_wait_ms * 10.0).round() / 10.0, "errors": s.errors, "offsets": s.offsets,
         "hist": s.hist, "final": final_report, "firstAt": s.first_at, "lastAt": s.last_at,
         "maxLatencyMs": s.max_latency_ms,
     });

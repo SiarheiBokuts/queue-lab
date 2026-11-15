@@ -30,7 +30,11 @@ impl ClientContext for Context {}
 impl ProducerContext for Context {
     type DeliveryOpaque = ();
     fn delivery(&self, result: &DeliveryResult<'_>, _opaque: Self::DeliveryOpaque) {
-        let counter = if result.is_ok() { &self.0.delivered } else { &self.0.errors };
+        let counter = if result.is_ok() {
+            &self.0.delivered
+        } else {
+            &self.0.errors
+        };
         counter.fetch_add(1, Ordering::Relaxed);
     }
 }
@@ -44,7 +48,9 @@ struct State {
 }
 
 fn number<T: std::str::FromStr>(name: &str) -> T {
-    required(name).parse().unwrap_or_else(|_| panic!("{name} is not a number"))
+    required(name)
+        .parse()
+        .unwrap_or_else(|_| panic!("{name} is not a number"))
 }
 
 pub fn run() {
@@ -104,7 +110,10 @@ pub fn run() {
             payload.resize(payload.len() + fill, b'x');
         }
         let key = user_key(part, i as usize, nparts, users); // the user this message belongs to
-        let mut record = BaseRecord::<str, Vec<u8>>::to(&get().topic).partition(part as i32).key(key.as_str()).payload(&payload);
+        let mut record = BaseRecord::<str, Vec<u8>>::to(&get().topic)
+            .partition(part as i32)
+            .key(key.as_str())
+            .payload(&payload);
         loop {
             match producer.send(record) {
                 Ok(()) => break,

@@ -7,6 +7,12 @@ latency, messages waiting, CPU, memory and network. Run the same test in every l
 
 **Stack:** Python (FastAPI) · Vue 3 + TypeScript · Kafka · Docker · Go · Rust · Java · Node.js
 
+> **🧪 This is a test version.** The lab is an experiment and a learning project, not a benchmark you should take
+> decisions from. The author is not an expert in all five worker languages: the code of a language may not be the most
+> idiomatic way to write it, and the numbers depend on your machine, the scenario and the libraries. Somewhere I may
+> well have made a mistake, in the code, in how something is measured or in what the screens say 🙂. If you see
+> something wrong, or something that a language does better, an issue or a pull request is welcome.
+
 ### 🎯 What is tested and checked
 **Tested (measured):**
 - **Speed:** how many messages per second a worker handles under the load you set (count, size, rate, senders, compression).
@@ -18,7 +24,7 @@ latency, messages waiting, CPU, memory and network. Run the same test in every l
 
 **Checked (verified):**
 - **No lost or duplicated messages:** every message has a number per sender and partition, so lost and repeated messages are counted.
-- **Order per user (by design, not measured):** messages of one user always go to the same partition and are handled one after another while other users run in parallel. The order is guaranteed by the design, not measured.
+- **Order per user:** messages of one user always go to the same partition and are handled one after another while other users run in parallel. Every worker also checks it while handling: a message handled after a later one of the same user is counted ("Handled out of order", normally 0).
 - **Sent against received:** the report compares what was really sent with what the workers got.
 - **Memory budget:** the app refuses containers that do not fit in the limits you set.
 
@@ -26,12 +32,15 @@ latency, messages waiting, CPU, memory and network. Run the same test in every l
 
 - [🚀 Quick start](#-quick-start)
 - [✨ Features](#-features)
+- [🖼️ Screens](#️-screens)
 - [⚙️ How it works](#️-how-it-works)
 - [⚖️ Fair comparison](#️-fair-comparison)
+- [⚠️ Known limits](#️-known-limits)
 - [📁 Project layout](#-project-layout)
 - [✅ Tests](#-tests)
 - [🔧 Settings and cleanup](#-settings-and-cleanup)
 - [🔒 Security](#-security)
+- [📄 License](#-license)
 
 
 ## 🚀 Quick start
@@ -47,21 +56,31 @@ Open <http://localhost:8080>. The first start builds the app, the first run of e
 Stop with `docker compose down`; the containers the app created are removed with it.
 
 ## ✨ Features
-- **Load:** up to 50 million messages, message size, target rate, several senders, compression, compressible or random data.
+- **Load:** you type any numbers: messages, message size, send speed, senders, workers, partitions, users, compression, compressible or random data. Nothing is capped; when a number looks too big the form says what to expect (for example that the run will not finish in the 30 minutes after which a run is stopped, or that Kafka refuses a message above 1 MB) and you can run it anyway. Only the memory budget can refuse a setup, so your computer does not run out of memory (and a number so large that a worker cannot read it, such as more than 2 147 483 647 partitions).
 - **Workers:** the batch size, how many messages one worker handles at once; messages of one user are always handled in order.
 - **Scenarios:** echo (count only), delay (waits like a database call), JSON (parses a ~600 byte document and writes it back with the standard JSON library of the language, the closest to real service work; the libraries differ, Python's is written in C, Go's and Java's in the language itself).
 - **Live view:** topology, progress, messages waiting per partition, every container.
 - **Report:** message window, resources, latency, network (needed against really sent), with the setup that produced them.
 - **Compare languages:** the same test per language in random order, with every metric side by side. No grades or winner: the result depends on the scenario and your machine.
 - **Memory budget:** the app refuses containers that do not fit.
+- **Light and dark theme**, code shown with the colours of VS Code.
 
-| New run | Dashboard |
+## 🖼️ Screens
+The first visit starts on a page that shows what Docker has and asks how much memory the lab may use.
+
+![Welcome](docs/screenshots/welcome.png)
+
+| New run | Dashboard while a run is going |
 |---|---|
 | ![New run](docs/screenshots/new-run.png) | ![Dashboard](docs/screenshots/dashboard.png) |
 
-| Report | Code |
+| Run report | Code |
 |---|---|
 | ![Report](docs/screenshots/report.png) | ![Code](docs/screenshots/code.png) |
+
+| Runs | Settings |
+|---|---|
+| ![Runs](docs/screenshots/runs.png) | ![Settings](docs/screenshots/settings.png) |
 
 ## ⚙️ How it works
 ```mermaid
@@ -157,18 +176,23 @@ messages or 32 MB per partition, manual commit. The only known gap is Java, whic
 
 ## ⚠️ Known limits
 - **JSON scenario** compares the standard JSON libraries as much as the languages: they are written in different languages and tuned differently.
-- **Order inside a user** is guaranteed by the design (one user, one partition, one worker, one group at a time), but not measured yet.
+- **A worker that is killed mid-run** hands its partitions to the others and the run goes on, but the last second it did not report is missing, so the lost number can be too high; the report says so. Duplicates from its unfinished batch only show up if it had reported those messages.
 - **Offsets are committed after every batch.** A crash repeats the batch, so messages may arrive twice (counted as duplicates); nothing is lost.
-- **The next batch starts when the whole batch is done.** One user with many slow messages makes the others in that batch wait. Production libraries that avoid this are more complex; the lab keeps the simple rule.
+- **The next batch starts when the whole batch is done.** One user with many slow messages makes the others in that batch wait. The report shows the cost as "Waiting for the slowest user" (share of the batch time). Production libraries that avoid this are more complex; the lab keeps the simple rule.
 - **One broker, `acks=1`, no TLS:** closer to production in load and batching than in replication.
 - **Node.js reads a batch of one partition** (the client's own batching); the other languages read from all their partitions. The Java client has no read-ahead queue (`queued.*`).
+
 ## 📁 Project layout
 ```
-backend/    the app (FastAPI): main, runs, analysis, contract, config, docker_service, kafka_service, store, tests
-workers/    one folder per language: python, node, java, go, rust (same files, same contract)
-frontend/   the UI (Vue 3, TypeScript): pages, components, stores
+backend/    the app (FastAPI): main, runs, analysis, advice (warnings), contract, config, docker_service, kafka_service, store, tests
+workers/    one folder per language: python, node, java, go, rust (same steps, same contract, own tests and style checks)
+frontend/   the UI (Vue 3, TypeScript): pages, components (setup/ has the sections of the run form), composables, stores
+e2e/        end-to-end tests (Playwright) and the script that takes the screenshots
 openspec/   specification and design decisions
 docs/       screenshots
+.github/    CI: tests, image builds, secrets, dependencies, Dockerfiles, workflows
+compose.yaml       the lab itself (docker compose up)
+compose.e2e.yaml   the end-to-end tests and the screenshots, run against the running lab
 ```
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for where to change things and how to add a language.
@@ -184,13 +208,32 @@ docker build -f workers/rust/Dockerfile.test workers/rust
 docker build -f workers/java/Dockerfile.test workers/java
 ```
 
+Every build checks the formatting and style, looks for suspicious code, checks the types where the language has them
+and runs the unit tests, each with the usual tool of that language (ruff, Biome, gofmt, rustfmt and clippy,
+google-java-format, pytest, vitest, ...). The table of what each tool does is in [CONTRIBUTING.md](CONTRIBUTING.md).
+CI also builds every image, looks for leaked secrets (gitleaks) and for known vulnerabilities in the dependencies
+(npm audit, pip-audit), and checks the Dockerfiles (hadolint) and the workflow files (actionlint).
+
+**End-to-end tests (Playwright)** open the real app in a browser: every page, the run form, the security checks and, in
+the slow set, a real run in two languages. Start the lab first (`docker compose up --build`), then:
+
+```bash
+docker compose -f compose.e2e.yaml run --rm e2e                      # fast tests: pages, form, security
+docker compose -f compose.e2e.yaml run --rm e2e npm run test:slow    # a real run in Go and Python (a few minutes)
+docker compose -f compose.e2e.yaml run --rm e2e npm run screenshots  # new screenshots into docs/screenshots
+```
+
+The browser runs in a container, so nothing is installed on your machine. More in [CONTRIBUTING.md](CONTRIBUTING.md).
+
 ## 🔧 Settings and cleanup
-`QUEUELAB_PORT` (default `8080`) sets the port on `127.0.0.1`. The memory budget is set on the Settings page. If the
+`QUEUELAB_PORT` (default `8080`) sets the port on `127.0.0.1`. The memory budget is chosen on the first visit (by default half of the memory Docker has free) and changed on the Settings page. If the
 app was killed and containers remain: `docker compose run --rm app python -m app.cleanup`.
 
 ## 🔒 Security
 The app mounts the Docker socket, which is root on the host. It listens on `127.0.0.1` only, has no login, and checks
-the Host and Origin of requests. Do not expose it to a network. See [SECURITY.md](SECURITY.md).
+the Host and Origin of requests (also on WebSockets), sends security headers, accepts worker reports of at most 1 MB,
+and only streams logs of the lab's own containers. CI scans for secrets and vulnerable dependencies. Do not expose it
+to a network. See [SECURITY.md](SECURITY.md).
 
 ## 📄 License
 MIT

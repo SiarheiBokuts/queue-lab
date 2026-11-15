@@ -1,7 +1,7 @@
-# Runs the unit tests of the Python worker helpers: docker build -f workers/python/Dockerfile.test workers/python
+# Runs the checks of the Python worker: style (ruff) and unit tests. docker build -f workers/python/Dockerfile.test workers/python
 FROM python:3.15-slim-trixie
 WORKDIR /app
-RUN pip install --no-cache-dir pytest==9.2.0
-COPY lib.py cpu.py ./
+RUN pip install --no-cache-dir pytest==9.2.0 ruff==0.17.4
+COPY *.py ./
 COPY tests ./tests
-RUN python -m pytest -q tests
+RUN ruff check . --select E,F,W,I,B,UP,SIM --line-length 120 && python -m pytest -q tests

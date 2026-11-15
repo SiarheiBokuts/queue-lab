@@ -14,7 +14,10 @@ onMounted(async () => {
   await live.refresh()
   Object.assign(form, live.settings)
 })
-watch(() => live.settings, (s) => Object.assign(form, s))
+watch(
+  () => live.settings,
+  (s) => Object.assign(form, s),
+)
 
 async function save() {
   try {
@@ -30,7 +33,15 @@ const labCpuShare = computed(() => (live.host.cpus ? Math.round(labCpu.value / l
 const suggest = (p: number) => Math.max(512, Math.floor((live.host.available_mb * p) / 100 / 64) * 64)
 
 async function delQueue(name: string) {
-  if (!(await askConfirm({ title: `Delete the queue "${name}"?`, text: 'The queue and its workers are removed from Kafka. Reports of finished runs stay.', okLabel: 'Delete queue', danger: true }))) return
+  if (
+    !(await askConfirm({
+      title: `Delete the queue "${name}"?`,
+      text: 'The queue and its workers are removed from Kafka. Reports of finished runs stay.',
+      okLabel: 'Delete queue',
+      danger: true,
+    }))
+  )
+    return
   try {
     await api.deleteQueue(name)
     await live.refresh()
@@ -40,7 +51,15 @@ async function delQueue(name: string) {
   }
 }
 async function reset() {
-  if (!(await askConfirm({ title: 'Remove all lab containers?', text: 'Kafka, the workers and the senders are stopped and removed, and the dashboard is cleared. Run history is kept. Kafka starts again with the next run.', okLabel: 'Remove containers', danger: true }))) return
+  if (
+    !(await askConfirm({
+      title: 'Remove all lab containers?',
+      text: 'Kafka, the workers and the senders are stopped and removed, and the dashboard is cleared. Run history is kept. Kafka starts again with the next run.',
+      okLabel: 'Remove containers',
+      danger: true,
+    }))
+  )
+    return
   try {
     await api.reset()
     await live.refresh()
@@ -50,7 +69,15 @@ async function reset() {
   }
 }
 async function delRuns() {
-  if (!(await askConfirm({ title: 'Delete the whole run history?', text: `All ${live.runs.length} runs and their reports are removed. This cannot be undone.`, okLabel: 'Delete everything', danger: true }))) return
+  if (
+    !(await askConfirm({
+      title: 'Delete the whole run history?',
+      text: `All ${live.runs.length} runs and their reports are removed. This cannot be undone.`,
+      okLabel: 'Delete everything',
+      danger: true,
+    }))
+  )
+    return
   try {
     await api.deleteRuns()
     await live.refresh()
@@ -70,21 +97,43 @@ async function delRuns() {
 
   <div class="card" style="max-width: 680px">
     <h2 class="mb-1">Processor (CPU)</h2>
-    <p class="lbl mb-3">Docker can use <b class="text-zinc-200">{{ live.host.cpus || '?' }} CPU cores</b>. Every sender and worker gets the same share of them (the cores minus one kept for Kafka and the app, divided equally), so no language can take the cores of another.</p>
+    <p class="lbl mb-3">
+      Docker can use <b class="text-zinc-200">{{ live.host.cpus || '?' }} CPU cores</b>. Every sender and worker gets
+      the same share of them (the cores minus one kept for Kafka and the app, divided equally), so no language can take
+      the cores of another.
+    </p>
     <div class="grid gap-3" style="grid-template-columns: repeat(auto-fit, minmax(180px, 1fr))">
-      <div class="tile"><div class="lbl">Lab containers use now</div><div class="val">{{ labCpu }}%</div><div class="lbl">of one core, {{ labCpuShare }}% of all Docker cores</div></div>
-      <div class="tile"><div class="lbl">Cores in use</div><div class="val">{{ (labCpu / 100).toFixed(1) }} / {{ live.host.cpus || '?' }}</div><div class="lbl">100% = one core fully busy</div></div>
+      <div class="tile">
+        <div class="lbl">Lab containers use now</div>
+        <div class="val">{{ labCpu }}%</div>
+        <div class="lbl">of one core, {{ labCpuShare }}% of all Docker cores</div>
+      </div>
+      <div class="tile">
+        <div class="lbl">Cores in use</div>
+        <div class="val">{{ (labCpu / 100).toFixed(1) }} / {{ live.host.cpus || '?' }}</div>
+        <div class="lbl">100% = one core fully busy</div>
+      </div>
     </div>
-    <div class="lbl mt-3">What a sender or worker gets, by the number of containers in a run:
-      <span v-for="n in [2, 3, 6, 10]" :key="n" class="badge ml-1.5">{{ n }} → {{ fairCores(live.host.cpus || 1, n) }} core{{ fairCores(live.host.cpus || 1, n) === 1 ? '' : 's' }}</span>
+    <div class="lbl mt-3">
+      What a sender or worker gets, by the number of containers in a run:
+      <span v-for="n in [2, 3, 6, 10]" :key="n" class="badge ml-1.5"
+        >{{ n }} → {{ fairCores(live.host.cpus || 1, n) }} core{{
+          fairCores(live.host.cpus || 1, n) === 1 ? '' : 's'
+        }}</span
+      >
     </div>
-    <p class="lbl mt-3">CPU numbers in the lab are percent of <b>one</b> core: 100% is one core, 400% is four cores. A worker that mostly waits (a delay, a database) uses little CPU, one that computes can use a whole core. To change the CPU available to Docker, set it in Docker Desktop (Settings, Resources) or in <span class="mono">.wslconfig</span> on Windows.</p>
+    <p class="lbl mt-3">
+      CPU numbers in the lab are percent of <b>one</b> core: 100% is one core, 400% is four cores. A worker that mostly
+      waits (a delay, a database) uses little CPU, one that computes can use a whole core. To change the CPU available
+      to Docker, set it in Docker Desktop (Settings, Resources) or in <span class="mono">.wslconfig</span> on Windows.
+    </p>
   </div>
 
   <div class="card flex flex-col gap-4" style="max-width: 680px">
     <h2>Memory and Kafka</h2>
     <div>
-      <label class="field">Memory budget for all lab containers (MB)
+      <label class="field"
+        >Memory budget for all lab containers (MB)
         <input class="input" type="number" min="512" step="64" v-model.number="form.budget_mb" />
       </label>
       <div class="lbl mt-2">
@@ -93,25 +142,48 @@ async function delRuns() {
         <a href="#" class="text-blue-400" @click.prevent="form.budget_mb = suggest(50)">50% ({{ suggest(50) }})</a> ·
         <a href="#" class="text-blue-400" @click.prevent="form.budget_mb = suggest(75)">75% ({{ suggest(75) }})</a>
       </div>
-      <div v-if="form.budget_mb > live.host.available_mb" class="text-amber-400 text-xs mt-1">This is more than the memory available to Docker now. The real free memory is still enforced.</div>
+      <div v-if="form.budget_mb > live.host.available_mb" class="text-amber-400 text-xs mt-1">
+        This is more than the memory available to Docker now. The real free memory is still enforced.
+      </div>
     </div>
     <label class="flex items-start gap-3 text-sm">
       <input type="checkbox" v-model="form.light_mode" class="mt-1" />
-      <span>Light Kafka mode (apache/kafka-native)<br /><span class="lbl">Starts faster and uses less memory, intended for local testing. Applies the next time the broker is created.</span></span>
+      <span
+        >Light Kafka mode (apache/kafka-native)<br /><span class="lbl"
+          >Starts faster and uses less memory, intended for local testing. Applies the next time the broker is
+          created.</span
+        ></span
+      >
     </label>
     <label class="flex items-start gap-3 text-sm">
       <input type="checkbox" v-model="form.remove_on_stop" class="mt-1" />
-      <span>Remove lab containers when the app stops<br /><span class="lbl">Recommended. Otherwise they keep running after docker compose down.</span></span>
+      <span
+        >Remove lab containers when the app stops<br /><span class="lbl"
+          >Recommended. Otherwise they keep running after docker compose down.</span
+        ></span
+      >
     </label>
     <div><button class="btn btn-primary" @click="save">Save settings</button></div>
   </div>
 
   <div class="card" style="max-width: 680px">
     <h2 class="mb-1">Queues</h2>
-    <p class="lbl mb-2">A queue is a Kafka topic. A run creates it if it is missing. Deleting one removes the topic and its workers; finished reports stay.</p>
-    <div v-if="!live.queues.length" class="lbl">No queues yet. They appear after the first run.</div>
-    <div v-for="q in live.queues" :key="q.name" class="flex items-center justify-between py-1.5 border-t border-zinc-800">
-      <span>{{ q.name }} <span class="lbl">· {{ q.partitions }} partitions</span></span>
+    <p class="lbl mb-2">
+      A queue is a Kafka topic. A run creates it if it is missing. Deleting one removes the topic and its workers;
+      finished reports stay.
+    </p>
+    <div v-if="!live.queues.length" class="lbl">
+      No queues yet. They appear after the first run.
+      <router-link to="/setup" class="text-blue-400 hover:underline">Set up a run</router-link>
+    </div>
+    <div
+      v-for="q in live.queues"
+      :key="q.name"
+      class="flex items-center justify-between py-1.5 border-t border-zinc-800"
+    >
+      <span
+        >{{ q.name }} <span class="lbl">· {{ q.partitions }} partitions</span></span
+      >
       <button class="btn btn-danger" @click="delQueue(q.name)">Delete queue</button>
     </div>
   </div>
@@ -119,11 +191,21 @@ async function delRuns() {
   <div class="card" style="max-width: 680px">
     <h2 class="mb-1">Cleanup</h2>
     <div class="flex items-center justify-between py-2">
-      <span class="text-sm">Lab containers now running: <b>{{ live.containers.length }}</b><br /><span class="lbl">Project {{ live.projects.project }} · sandbox {{ live.projects.sandbox_project }}</span></span>
-      <button class="btn btn-danger" :disabled="!live.containers.length" @click="reset">Remove all lab containers</button>
+      <span class="text-sm"
+        >Lab containers now running: <b>{{ live.containers.length }}</b><br /><span class="lbl"
+          >Project {{ live.projects.project }} · sandbox {{ live.projects.sandbox_project }}</span
+        ></span
+      >
+      <button class="btn btn-danger" :disabled="!live.containers.length" @click="reset">
+        Remove all lab containers
+      </button>
     </div>
     <div class="flex items-center justify-between py-2 border-t border-zinc-800">
-      <span class="text-sm">Run history: <b>{{ live.runs.length }}</b> runs<br /><span class="lbl">Reports and measurements of finished tests.</span></span>
+      <span class="text-sm"
+        >Run history: <b>{{ live.runs.length }}</b> runs<br /><span class="lbl"
+          >Reports and measurements of finished tests.</span
+        ></span
+      >
       <button class="btn btn-danger" :disabled="!live.runs.length" @click="delRuns">Delete run history</button>
     </div>
   </div>

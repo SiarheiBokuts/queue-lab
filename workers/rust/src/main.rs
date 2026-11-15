@@ -18,7 +18,8 @@ use std::sync::atomic::Ordering;
 
 fn main() {
     settings::init();
-    ctrlc::set_handler(|| reporting::STOPPING.store(true, Ordering::Relaxed)).expect("signal handler"); // docker stop sends SIGTERM
+    ctrlc::set_handler(|| reporting::STOPPING.store(true, Ordering::Relaxed))
+        .expect("signal handler"); // docker stop sends SIGTERM
     let s = settings::get();
     println!("{} {} starting", s.role, s.worker_id);
     if s.role == "consumer" {

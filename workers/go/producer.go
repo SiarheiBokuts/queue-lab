@@ -27,7 +27,7 @@ func runProducer() {
 	total := envInt("MESSAGES") // this producer's share of the messages
 	size := envInt("MSG_SIZE")
 	nparts := envInt("PARTITIONS")
-	index := envInt("PRODUCER_INDEX") // which producer this is (0, 1, ...) when several share the load
+	index := envInt("PRODUCER_INDEX")                   // which producer this is (0, 1, ...) when several share the load
 	rate, _ := strconv.ParseFloat(required("RATE"), 64) // this producer's target messages per second; 0 = as fast as possible
 	randomPayload := required("PAYLOAD") == "random"    // incompressible data instead of a repeated filler
 	users := envInt("USERS")                            // how many different users (message keys) the messages are spread over

@@ -8,7 +8,6 @@ import path from 'node:path';
 import { Worker } from 'node:worker_threads';
 import { CPU_THREADS } from './settings.js';
 
-
 export class HashPool {
   private readonly threads: Worker[];
   private readonly waiting = new Map<number, () => void>();
