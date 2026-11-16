@@ -46,8 +46,8 @@ are described in the next section):
 # leaked secrets in the whole history (gitleaks)
 docker run --rm -v "$PWD:/repo" zricethezav/gitleaks:v8.30.1 detect --source /repo --no-banner --redact
 # known vulnerabilities in the dependencies (npm audit, pip-audit)
-docker run --rm -v "$PWD/frontend:/app" -w /app node:24-slim npm audit --omit=dev --audit-level=high
-docker run --rm -v "$PWD/backend:/app" -w /app python:3.14-slim-trixie sh -c "pip install -q pip-audit && pip-audit -r requirements.txt"
+docker run --rm -v "$PWD/frontend:/app" -w /app node:26-slim npm audit --omit=dev --audit-level=high
+docker run --rm -v "$PWD/backend:/app" -w /app python:3.15-slim-trixie sh -c "pip install -q pip-audit && pip-audit -r requirements.txt"
 # mistakes in the Dockerfiles (hadolint)
 docker run --rm -i hadolint/hadolint:v2.15.1 hadolint --failure-threshold warning - < Dockerfile
 # mistakes in the workflow files (actionlint)

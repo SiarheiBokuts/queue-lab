@@ -17,7 +17,20 @@ services:
       SCREENSHOTS_DIR: /screenshots
     networks: [sandbox]
     # The packages are installed first, whatever command is given (node_modules appear in e2e/ on the host, git ignores them).
-    entrypoint: ["sh", "-c", "npm ci --no-audit --no-fund >/dev/null 2>&1 && exec \"$$@\"", "--"]
+    #
+    # What the symbols mean:
+    #   $@   in the shell: "all the arguments", here the command that follows, that is `command` below,
+    #        or the one written after `run --rm e2e` (for example `npm run test:slow`)
+    #   $$   compose's way to write one $ (a single $ would be read by compose as one of its own variables)
+    #   exec runs that command in place of the shell, so Ctrl+C and the exit code (CI needs it) reach npm
+    #   "--" fills $0 (the name of the script) so that $@ starts with the real command
+    entrypoint:
+      - sh
+      - -c
+      - |
+        npm ci --silent --no-audit --no-fund || exit 1
+        exec "$$@"
+      - "--"
     command: ["npm", "test"]
 
 networks:

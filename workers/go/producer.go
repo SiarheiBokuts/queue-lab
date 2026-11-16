@@ -1,6 +1,13 @@
 package main
 
 // The producer: sends its share of the messages over all partitions, at the requested rate, then reports "done".
+//
+// The file reads top to bottom in the same groups as the producer of every other language:
+//  1. settings      what this producer was asked to do
+//  2. counters      what the report shows, shared by the loop, the delivery callbacks and the reporter
+//  3. client        the Kafka producer and its delivery reports
+//  4. message       how one message is built and handed to the client
+//  5. run           the steps in order (the sending loop is the part shown on the Code page)
 
 import (
 	"crypto/rand"
@@ -23,20 +30,101 @@ func envInt(name string) int {
 	return n
 }
 
-func runProducer() {
-	total := envInt("MESSAGES") // this producer's share of the messages
-	size := envInt("MSG_SIZE")
-	nparts := envInt("PARTITIONS")
-	index := envInt("PRODUCER_INDEX")                   // which producer this is (0, 1, ...) when several share the load
-	rate, _ := strconv.ParseFloat(required("RATE"), 64) // this producer's target messages per second; 0 = as fast as possible
-	randomPayload := required("PAYLOAD") == "random"    // incompressible data instead of a repeated filler
-	users := envInt("USERS")                            // how many different users (message keys) the messages are spread over
+// ---- 1. settings -------------------------------------------------------------------------------------------------
 
-	var mu sync.Mutex
-	var sent, delivered, errs int64
-	var done bool
-	var started, finished float64
+type producerSettings struct {
+	total         int     // this producer's share of the messages
+	size          int     // bytes per message
+	partitions    int     // partitions of the queue
+	index         int     // which producer this is (0, 1, ...) when several share the load
+	rate          float64 // this producer's target messages per second; 0 = as fast as possible
+	randomPayload bool    // incompressible data instead of a repeated filler
+	users         int     // how many different users (message keys) the messages are spread over
+}
 
+func readProducerSettings() producerSettings {
+	rate, _ := strconv.ParseFloat(required("RATE"), 64)
+	return producerSettings{
+		total:         envInt("MESSAGES"),
+		size:          envInt("MSG_SIZE"),
+		partitions:    envInt("PARTITIONS"),
+		index:         envInt("PRODUCER_INDEX"),
+		rate:          rate,
+		randomPayload: required("PAYLOAD") == "random",
+		users:         envInt("USERS"),
+	}
+}
+
+// ---- 2. counters -------------------------------------------------------------------------------------------------
+
+type producerCounters struct {
+	mu                      sync.Mutex
+	sent, delivered, errors int64
+	done                    bool
+	started, finished       float64 // seconds since 1970; 0 = not yet
+}
+
+func (c *producerCounters) setSent(n int64) {
+	c.mu.Lock()
+	c.sent = n
+	c.mu.Unlock()
+}
+
+// confirmed is called for every message once the broker confirmed or rejected it.
+func (c *producerCounters) confirmed(failed bool) {
+	c.mu.Lock()
+	if failed {
+		c.errors++
+	} else {
+		c.delivered++
+	}
+	c.mu.Unlock()
+}
+
+func (c *producerCounters) start() {
+	c.mu.Lock()
+	c.started = nowSeconds()
+	c.mu.Unlock()
+}
+
+func (c *producerCounters) finish() {
+	c.mu.Lock()
+	c.finished = nowSeconds()
+	c.done = true
+	c.mu.Unlock()
+}
+
+func (c *producerCounters) running() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return !c.done
+}
+
+func (c *producerCounters) report() {
+	c.mu.Lock()
+	payload := map[string]interface{}{
+		"runId": runID, "worker": workerID(), "role": "producer", "lang": "go", "ts": nowSeconds(),
+		"sent": c.sent, "delivered": c.delivered, "errors": c.errors, "done": c.done,
+		"started": nilIfZero(c.started), "finished": nilIfZero(c.finished),
+	}
+	c.mu.Unlock()
+	post(payload)
+}
+
+// nowSeconds is the time in seconds since 1970, as the report wants it.
+func nowSeconds() float64 { return float64(time.Now().UnixNano()) / 1e9 }
+
+// nilIfZero reports a timestamp that was never set as JSON null.
+func nilIfZero(v float64) interface{} {
+	if v == 0 {
+		return nil
+	}
+	return v
+}
+
+// ---- 3. client ---------------------------------------------------------------------------------------------------
+
+func newKafkaProducer(counters *producerCounters) *kafka.Producer {
 	// Batching, acks, queue size and compression come from the backend (the same values for every language).
 	conf := kafkaConf("PRODUCER_CONF")
 	conf["bootstrap.servers"] = boot
@@ -47,93 +135,93 @@ func runProducer() {
 	go func() { // delivery reports: the broker confirmed or rejected a message
 		for event := range producer.Events() {
 			if message, ok := event.(*kafka.Message); ok {
-				mu.Lock()
-				if message.TopicPartition.Error != nil {
-					errs++
-				} else {
-					delivered++
-				}
-				mu.Unlock()
+				counters.confirmed(message.TopicPartition.Error != nil)
 			}
 		}
 	}()
+	return producer
+}
 
-	pool := []byte{}
-	if randomPayload {
-		pool = make([]byte, poolBytes+size)
-		_, _ = rand.Read(pool)
+// ---- 4. message --------------------------------------------------------------------------------------------------
+
+// randomPool is the data random padding is cut from (empty when the padding is a repeated filler).
+func randomPool(cfg producerSettings) []byte {
+	if !cfg.randomPayload {
+		return nil
 	}
-	sendReport := func() {
-		mu.Lock()
-		payload := map[string]interface{}{
-			"runId": runID, "worker": workerID(), "role": "producer", "lang": "go", "ts": float64(time.Now().UnixNano()) / 1e9,
-			"sent": sent, "delivered": delivered, "errors": errs, "done": done, "started": nilIfZero(started), "finished": nilIfZero(finished),
+	pool := make([]byte, poolBytes+cfg.size)
+	_, _ = rand.Read(pool)
+	return pool
+}
+
+// buildMessage is the header (who sent it, where, which number, when) padded up to the requested message size.
+func buildMessage(head []byte, i int, cfg producerSettings, pool []byte) []byte {
+	fill := cfg.size - len(head)
+	if fill < 0 {
+		fill = 0
+	}
+	payload := make([]byte, 0, len(head)+fill)
+	payload = append(payload, head...)
+	if cfg.randomPayload {
+		offset := (i * 997) % poolBytes
+		return append(payload, pool[offset:offset+fill]...)
+	}
+	for k := 0; k < fill; k++ {
+		payload = append(payload, 'x')
+	}
+	return payload
+}
+
+// produce hands a message to the client; when the local queue is full it waits for the client to drain it.
+func produce(producer *kafka.Producer, message *kafka.Message) {
+	for {
+		err := producer.Produce(message, nil)
+		if err == nil {
+			return
 		}
-		mu.Unlock()
-		post(payload)
+		if kerr, ok := err.(kafka.Error); ok && kerr.Code() == kafka.ErrQueueFull {
+			time.Sleep(50 * time.Millisecond)
+			continue
+		}
+		panic(err)
 	}
-	startReporter(sendReport, func() bool { mu.Lock(); defer mu.Unlock(); return !done })
+}
+
+// ---- 5. run ------------------------------------------------------------------------------------------------------
+
+func runProducer() {
+	cfg := readProducerSettings()
+	counters := &producerCounters{}
+	producer := newKafkaProducer(counters)
+	pool := randomPool(cfg)
+	startReporter(counters.report, counters.running)
 
 	// @producer-start
-	seqs := make([]int64, nparts) // each partition has its own sequence counter for this producer, starting at 0
+	seqs := make([]int64, cfg.partitions) // each partition has its own sequence counter for this producer, starting at 0
 	begin := time.Now()
-	started = float64(begin.UnixNano()) / 1e9
-	checkEvery := pacingChunk(rate, 500) // how often to look at the clock and serve delivery callbacks
+	counters.start()
+	checkEvery := pacingChunk(cfg.rate, 500) // how often to look at the clock
 	topicName := topic
-	for i := 0; i < total && !stopping.Load(); i++ {
-		part := (i + index) % nparts // round robin; producers start on different partitions so the load stays even
-		head := buildHeader(runID, index, part, seqs[part], nowMs())
+	for i := 0; i < cfg.total && !stopping.Load(); i++ {
+		part := (i + cfg.index) % cfg.partitions // round robin; producers start on different partitions so the load stays even
+		head := buildHeader(runID, cfg.index, part, seqs[part], nowMs())
 		seqs[part]++
-		fill := size - len(head) // pad up to the requested message size
-		if fill < 0 {
-			fill = 0
-		}
-		payload := make([]byte, 0, len(head)+fill)
-		payload = append(payload, head...)
-		if randomPayload {
-			offset := (i * 997) % poolBytes
-			payload = append(payload, pool[offset:offset+fill]...)
-		} else {
-			for k := 0; k < fill; k++ {
-				payload = append(payload, 'x')
-			}
-		}
-		message := &kafka.Message{TopicPartition: kafka.TopicPartition{Topic: &topicName, Partition: int32(part)}, Key: userKey(part, i, nparts, users), Value: payload}
-		for {
-			err := producer.Produce(message, nil)
-			if err == nil {
-				break
-			}
-			if kerr, ok := err.(kafka.Error); ok && kerr.Code() == kafka.ErrQueueFull {
-				time.Sleep(50 * time.Millisecond) // the local queue is full: let the client drain it, then retry
-				continue
-			}
-			panic(err)
-		}
-		mu.Lock()
-		sent = int64(i + 1)
-		mu.Unlock()
+		produce(producer, &kafka.Message{
+			TopicPartition: kafka.TopicPartition{Topic: &topicName, Partition: int32(part)},
+			Key:            userKey(part, i, cfg.partitions, cfg.users),
+			Value:          buildMessage(head, i, cfg, pool),
+		})
+		counters.setSent(int64(i + 1))
 		if (i+1)%checkEvery == 0 {
-			if wait := pacingDelay(i+1, rate, time.Since(begin)); wait > 0 { // ahead of the target rate? then wait
+			if wait := pacingDelay(i+1, cfg.rate, time.Since(begin)); wait > 0 { // ahead of the target rate? then wait
 				time.Sleep(wait)
 			}
 		}
 	}
 	// @producer-end
 	producer.Flush(60000) // wait until every message is confirmed by the broker
-	mu.Lock()
-	finished = float64(time.Now().UnixNano()) / 1e9
-	done = true
-	mu.Unlock()
-	sendReport()
+	counters.finish()
+	counters.report()
 	producer.Close()
 	_ = os.Stdout.Sync()
-}
-
-// nilIfZero reports a timestamp that was never set as JSON null.
-func nilIfZero(v float64) interface{} {
-	if v == 0 {
-		return nil
-	}
-	return v
 }

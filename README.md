@@ -13,21 +13,6 @@ latency, messages waiting, CPU, memory and network. Run the same test in every l
 > well have made a mistake, in the code, in how something is measured or in what the screens say 🙂. If you see
 > something wrong, or something that a language does better, an issue or a pull request is welcome.
 
-### 🎯 What is tested and checked
-**Tested (measured):**
-- **Speed:** how many messages per second a worker handles under the load you set (count, size, rate, senders, compression).
-- **Latency:** time from send to handling, taken from the send time in each message header.
-- **Backlog:** messages waiting per partition while the test runs.
-- **Resources:** CPU, memory and network of every container, read from Docker the same way for every language.
-- **Languages:** the same test in Python, Node.js, Java, Go and Rust, run in random order, every number side by side.
-- **Scenarios:** echo (count only), delay (waits like a database call), JSON (parses a ~600 byte document and writes it back with the standard JSON library of the language, the closest to real service work; the libraries differ, Python's is written in C, Go's and Java's in the language itself).
-
-**Checked (verified):**
-- **No lost or duplicated messages:** every message has a number per sender and partition, so lost and repeated messages are counted.
-- **Order per user:** messages of one user always go to the same partition and are handled one after another while other users run in parallel. Every worker also checks it while handling: a message handled after a later one of the same user is counted ("Handled out of order", normally 0).
-- **Sent against received:** the report compares what was really sent with what the workers got.
-- **Memory budget:** the app refuses containers that do not fit in the limits you set.
-
 ### 📑 Contents
 
 - [🚀 Quick start](#-quick-start)
@@ -42,6 +27,20 @@ latency, messages waiting, CPU, memory and network. Run the same test in every l
 - [🔒 Security](#-security)
 - [📄 License](#-license)
 
+### 🎯 What is tested and checked
+**Tested (measured):**
+- **Speed:** how many messages per second a worker handles under the load you set (count, size, rate, senders, compression).
+- **Latency:** time from send to handling, taken from the send time in each message header.
+- **Backlog:** messages waiting per partition while the test runs.
+- **Resources:** CPU, memory and network of every container, read from Docker the same way for every language.
+- **Languages:** the same test in Python, Node.js, Java, Go and Rust, run in random order, every number side by side.
+- **Scenarios:** echo (count only), delay (waits like a database call), JSON (parses a ~600 byte document and writes it back with the standard JSON library of the language, the closest to real service work; the libraries differ, Python's is written in C, Go's and Java's in the language itself).
+
+**Checked (verified):**
+- **No lost or duplicated messages:** every message has a number per sender and partition, so lost and repeated messages are counted.
+- **Order per user:** messages of one user always go to the same partition and are handled one after another while other users run in parallel. Every worker also checks it while handling: a message handled after a later one of the same user is counted ("Handled out of order", normally 0).
+- **Sent against received:** the report compares what was really sent with what the workers got.
+- **Memory budget:** the app refuses containers that do not fit in the limits you set.
 
 ## 🚀 Quick start
 You need [Docker](https://www.docker.com/products/docker-desktop/) (8 GB of memory for it is comfortable).
@@ -181,6 +180,7 @@ messages or 32 MB per partition, manual commit. The only known gap is Java, whic
 - **The next batch starts when the whole batch is done.** One user with many slow messages makes the others in that batch wait. The report shows the cost as "Waiting for the slowest user" (share of the batch time). Production libraries that avoid this are more complex; the lab keeps the simple rule.
 - **One broker, `acks=1`, no TLS:** closer to production in load and batching than in replication.
 - **Node.js reads a batch of one partition** (the client's own batching); the other languages read from all their partitions. The Java client has no read-ahead queue (`queued.*`).
+- **Runtime versions are not all the newest.** The Node.js worker runs on Node.js 24 and the Python worker on Python 3.14, while the frontend build uses Node.js 26 and the backend Python 3.15. The Kafka client libraries have no prebuilt binary for the newer ones yet (`@confluentinc/kafka-javascript` for Node.js 26, `confluent-kafka` for Python 3.15), and building them from source fails. They move up when a release with a binary is out.
 
 ## 📁 Project layout
 ```
