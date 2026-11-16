@@ -97,6 +97,13 @@ RATE_WINDOW_S = 2.0  # a container that has not reported for twice this long cou
 # of the access log so the lines that matter stay readable.
 QUIET_PATHS = ("/internal/report", "/api/state")
 RUN_TIMEOUT_S = 1800  # a run is stopped after 30 minutes
+# Thresholds of the warnings in advice.py. Nothing is refused: these only decide when the form says what to expect.
+WARN_DATA_BYTES = 20 * 1024**3  # more data than this through Kafka may fill the disk of Docker
+KAFKA_MAX_MESSAGE_BYTES = 1_000_000  # the default message.max.bytes of the broker
+WARN_RATE_PER_SENDER = 300_000  # about what one sender container reaches
+WARN_MESSAGES_FOR_TIMEOUT = 20_000_000  # at full speed this often runs into the time limit
+WARN_PARTITIONS = 100
+WARN_CONCURRENCY = 200
 STALL_TIMEOUT_S = 8  # after the producer is done, no progress for this long means the rest was lost
 JOIN_TIMEOUT_S = 120  # how long to wait for all workers to receive their partitions
 

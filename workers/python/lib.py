@@ -9,6 +9,8 @@ sequence: counts from 0 per sender and partition; a gap means loss, a repeat a d
 subtracted from "now" to get the latency. The rest is padding up to the message size chosen in the form.
 """
 
+import threading
+from typing import NamedTuple
 
 HEADER_SEPARATOR = b"|"
 HEADER_MAX_BYTES = 96  # the header is far shorter; we never copy the (possibly 64 KB) padding just to read it
@@ -47,7 +49,8 @@ def parse_header(value: bytes, expected_run: str) -> tuple[int, int, int, float]
         return None
 
 
-MAX_RANGES = 1000  # ranges kept per stream; beyond this the worker only counts (the report says how many it did not list)
+# Ranges kept per stream; beyond this the worker only counts (the report says how many it did not list).
+MAX_RANGES = 1000
 
 
 class SeqRanges:
@@ -95,19 +98,63 @@ class SeqRanges:
 def user_key(part: int, i: int, nparts: int, users: int) -> bytes:
     """Message key of the user a message belongs to, like a payment of one user.
 
-    A user always lands in the same partition (user number % partitions == partition), so Kafka keeps that user's messages
+    A user always lands in the same partition (user number % partitions == partition), so Kafka keeps that user's
+    messages
     in order. Within a partition the users take turns.
     """
     per_partition = max(1, users // nparts)
     return f"user-{part + nparts * ((i // nparts) % per_partition)}".encode()
 
 
-def group_by_user(messages: list) -> list[list]:
-    """Group messages by their key (the user). The order inside a group is the order they were sent in."""
-    groups: dict[bytes | None, list] = {}
-    for message in messages:
-        groups.setdefault(message.key(), []).append(message)
+class Item(NamedTuple):
+    """What the handling step needs to know about a message: whose it is and which one it is."""
+
+    key: bytes | None  # the user
+    producer: int  # which sender
+    seq: int  # the number of the message in its stream
+
+
+def group_by_user(items: list[Item]) -> list[list[Item]]:
+    """Group the items by their key (the user). The order inside a group is the order they were sent in."""
+    groups: dict[bytes | None, list[Item]] = {}
+    for item in items:
+        groups.setdefault(item.key, []).append(item)
     return list(groups.values())
+
+
+def batch_timing(started: float, done: list[float]) -> tuple[float, float]:
+    """How long a batch took, and how long of that some groups were done while others still worked (milliseconds).
+
+    `started` and `done` are clock readings in seconds. A batch without groups (all its messages belonged to another
+    run) took no time and waited for nobody.
+    """
+    if not done:
+        return 0.0, 0.0
+    return (max(done) - started) * 1000, (max(done) - min(done)) * 1000
+
+
+class OrderCheck:
+    """Checks that the messages of one user are handled in the order they were sent.
+
+    For every (user, sender) it remembers the number of the message handled last. A message with a lower number than
+    that was handled too late: it is counted as an order violation. A well built consumer never has one.
+    """
+
+    def __init__(self) -> None:
+        self.last: dict[tuple[bytes | None, int], int] = {}
+        self.violations = 0
+        self._lock = threading.Lock()
+
+    def check(self, item: Item) -> bool:
+        """Remember that `item` is handled now. Returns False when it came after a later message of the same user."""
+        with self._lock:
+            key = (item.key, item.producer)
+            last = self.last.get(key)
+            if last is not None and item.seq < last:
+                self.violations += 1
+                return False
+            self.last[key] = item.seq
+            return True
 
 def pacing_delay(sent: int, rate: float, elapsed: float) -> float:
     """Seconds a producer must wait so that `sent` messages take at least sent / rate seconds. 0 means "go on".

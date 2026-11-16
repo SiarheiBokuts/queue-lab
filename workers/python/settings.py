@@ -20,10 +20,13 @@ REPORT = os.environ["REPORT_URL"]  # where the once-per-second report is POSTed
 # Latency histogram: instead of sending every latency we count messages per bucket. EDGES are the upper edge of each
 # bucket in milliseconds (for example 0.5, 1, 2, 5 ... 10000); the backend sends them so they are defined only once.
 EDGES = parse_edges(os.environ["HIST_EDGES"])
-CONCURRENCY = int(os.environ.get("CONCURRENCY", "1") or 1)  # the batch size: messages one worker reads and handles at the same time (consumer only)
+# The batch size: messages one worker reads and handles at the same time (consumer only).
+CONCURRENCY = int(os.environ.get("CONCURRENCY", "1") or 1)
 BATCH_WAIT_MS = int(os.environ.get("BATCH_WAIT_MS", "50") or 50)  # the longest wait for a batch to fill (consumer only)
-CPU_THREADS = int(os.environ.get("CPU_THREADS", "1") or 1)  # messages one worker may compute at the same time (consumer only)
-JSON_DOC = os.environ.get("JSON_DOC", "{}")  # the document of the "json" scenario, the same bytes in every language (consumer only)
+# Messages one worker may compute at the same time (consumer only).
+CPU_THREADS = int(os.environ.get("CPU_THREADS", "1") or 1)
+# The document of the "json" scenario, the same bytes in every language (consumer only).
+JSON_DOC = os.environ.get("JSON_DOC", "{}")
 
 
 def kafka_conf(variable: str) -> dict:

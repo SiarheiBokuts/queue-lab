@@ -13,6 +13,23 @@ means the app is as powerful as root on your machine. So:
   app's data or the Docker socket.
 - The lab never runs code written by a user. Everything is chosen in the form.
 - The app container drops all capabilities, cannot gain new privileges and has a memory and process limit.
+- The lab's containers send their progress to the app (`/internal/report`). Anything on the sandbox network can reach that
+  endpoint, so a report is not trusted: a body above 1 MB is refused, and wrong types or missing fields end in an error
+  without changing the run.
+- The log stream (`/ws/logs/...`) serves only containers that belong to the lab (names with the `queuelab-` prefix),
+  never other containers on your machine.
+- The numbers of a run are not capped (the form only warns), so a large run uses as much time, disk and processor as it
+  asks for. Memory is the exception: it is checked against the budget you chose before any container starts, and a run
+  is stopped after 30 minutes.
+
+## How it is checked
+
+- **Tests of the app** cover the Host and Origin checks, the report limit and the budget.
+- **End-to-end tests** (`e2e/tests/security.fast.spec.ts`) try them against the running app: a foreign `Host`, a change
+  from another site, the security headers, a report that is too big and a log stream of a foreign container.
+- **CI** looks for leaked secrets in the whole history (gitleaks), for known vulnerabilities in the dependencies
+  (npm audit, pip-audit), and checks the Dockerfiles (hadolint) and the workflow files (actionlint). Dependabot proposes
+  updates.
 
 ## Reporting a problem
 

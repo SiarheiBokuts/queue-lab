@@ -1,6 +1,20 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { MAX_RANGES, SeqRanges, bucket, buildHeader, pacingChunk, pacingDelay, parseEdges, parseHeader, groupByUser, userKey, makeHeaderParser } from '../src/lib.js';
+import {
+  batchTiming,
+  bucket,
+  buildHeader,
+  groupByUser,
+  MAX_RANGES,
+  makeHeaderParser,
+  OrderCheck,
+  pacingChunk,
+  pacingDelay,
+  parseEdges,
+  parseHeader,
+  SeqRanges,
+  userKey,
+} from '../src/lib.js';
 
 const EDGES = [0.5, 1, 2, 5, 10];
 
@@ -13,7 +27,15 @@ describe('parseEdges', () => {
 
 describe('bucket', () => {
   const cases: Array<[number, number]> = [
-    [0, 0], [0.5, 0], [0.51, 1], [1, 1], [4.9, 3], [5, 3], [10, 4], [10.1, 5], [99999, 5],
+    [0, 0],
+    [0.5, 0],
+    [0.51, 1],
+    [1, 1],
+    [4.9, 3],
+    [5, 3],
+    [10, 4],
+    [10.1, 5],
+    [99999, 5],
   ];
   for (const [latency, expected] of cases) {
     it(`puts ${latency} ms into bucket ${expected}`, () => {
@@ -25,7 +47,12 @@ describe('bucket', () => {
 describe('header', () => {
   it('round trips', () => {
     const message = buildHeader('abc12345', 2, 3, 42, 1794147580123.456) + 'x'.repeat(100);
-    assert.deepEqual(parseHeader(message.slice(0, 96), 'abc12345'), { producer: 2, partition: 3, seq: 42, sentMs: 1794147580123.456 });
+    assert.deepEqual(parseHeader(message.slice(0, 96), 'abc12345'), {
+      producer: 2,
+      partition: 3,
+      seq: 42,
+      sentMs: 1794147580123.456,
+    });
   });
 
   it('ignores a message of another run', () => {
@@ -50,7 +77,12 @@ describe('SeqRanges', () => {
   it('a skipped number leaves a gap between two ranges', () => {
     const seen = new SeqRanges();
     for (const s of [0, 1, 2, 5, 6]) seen.observe(0, 0, s);
-    assert.deepEqual(seen.report(), { '0:0': [[0, 2], [5, 6]] }); // 3 and 4 are lost
+    assert.deepEqual(seen.report(), {
+      '0:0': [
+        [0, 2],
+        [5, 6],
+      ],
+    }); // 3 and 4 are lost
   });
 
   it('a number seen twice is a repeat', () => {
@@ -119,16 +151,54 @@ describe('users, keys and groups', () => {
 
   it('messages are grouped by user and keep their order', () => {
     const key = (name: string) => Buffer.from(name);
-    const batch = [{ key: key('user-1'), n: 1 }, { key: key('user-2'), n: 2 }, { key: key('user-1'), n: 3 }, { key: key('user-1'), n: 4 }];
-    assert.deepEqual(groupByUser(batch).map((g) => g.map((m) => m.n)), [[1, 3, 4], [2]]);
+    const batch = [
+      { key: key('user-1'), producer: 0, seq: 1 },
+      { key: key('user-2'), producer: 0, seq: 2 },
+      { key: key('user-1'), producer: 0, seq: 3 },
+      { key: key('user-1'), producer: 0, seq: 4 },
+    ];
+    assert.deepEqual(
+      groupByUser(batch).map((g) => g.map((m) => m.seq)),
+      [[1, 3, 4], [2]],
+    );
     assert.deepEqual(groupByUser([]), []);
+  });
+
+  it('a batch takes as long as its slowest group and the others wait for it', () => {
+    assert.deepEqual(batchTiming(10, [10.5, 12, 11]), { busyMs: 2, waitMs: 1.5 });
+    assert.deepEqual(batchTiming(10, [10.5]), { busyMs: 0.5, waitMs: 0 }); // one group: nobody waits
+  });
+
+  it('a batch without groups takes no time and does not crash', () => {
+    assert.deepEqual(batchTiming(10, []), { busyMs: 0, waitMs: 0 }); // all messages belonged to another run
+  });
+
+  it('a user handled in order has no violation, a message handled after a later one has', () => {
+    const order = new OrderCheck();
+    const user = Buffer.from('user-1');
+    for (const seq of [1, 2, 3, 3, 10]) assert.equal(order.check({ key: user, producer: 0, seq }), true); // a repeat is not out of order
+    assert.equal(order.violations, 0);
+    assert.equal(order.check({ key: user, producer: 0, seq: 4 }), false);
+    assert.equal(order.violations, 1);
+  });
+
+  it('users and senders are checked independently', () => {
+    const order = new OrderCheck();
+    order.check({ key: Buffer.from('user-1'), producer: 0, seq: 9 });
+    assert.equal(order.check({ key: Buffer.from('user-2'), producer: 0, seq: 1 }), true);
+    assert.equal(order.check({ key: Buffer.from('user-1'), producer: 1, seq: 1 }), true);
+    assert.equal(order.violations, 0);
   });
 });
 describe('makeHeaderParser (reads the bytes directly)', () => {
   const parse = makeHeaderParser('run1');
 
   it('gives the same result as the readable parseHeader', () => {
-    for (const [producer, partition, seq, sent] of [[0, 0, 0, 1794170000123.456], [3, 41, 987654321, 5.5], [7, 63, 1, 1794170000000.0]] as const) {
+    for (const [producer, partition, seq, sent] of [
+      [0, 0, 0, 1794170000123.456],
+      [3, 41, 987654321, 5.5],
+      [7, 63, 1, 1794170000000.0],
+    ] as const) {
       const text = buildHeader('run1', producer, partition, seq, sent);
       const buf = Buffer.from(text + 'x'.repeat(100), 'latin1');
       const fast = parse(buf);

@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -130,6 +131,7 @@ func (s *seqRanges) report() map[string][][2]int64 {
 	}
 	return out
 }
+
 // pacingDelay is how long a producer must wait so that `sent` messages take at least sent / rate seconds. Zero
 // means "go on". A rate of 0 means "as fast as possible", and a producer behind schedule never waits.
 func pacingDelay(sent int, rate float64, elapsed time.Duration) time.Duration {
@@ -160,6 +162,7 @@ func pacingChunk(rate float64, maxChunk int) int {
 
 // nowMs is the wall-clock time in milliseconds with sub-millisecond precision.
 func nowMs() float64 { return float64(time.Now().UnixNano()) / 1e6 }
+
 // userKey is the message key of the user a message belongs to, like a payment of one user. A user always lands in the
 // same partition (user number % partitions == partition), so Kafka keeps that user's messages in order.
 func userKey(part, i, nparts, users int) []byte {
@@ -170,19 +173,73 @@ func userKey(part, i, nparts, users int) []byte {
 	return []byte("user-" + strconv.Itoa(part+nparts*((i/nparts)%perPartition)))
 }
 
-// groupByUser groups messages by their key (the user) and returns, for each user, the positions of its messages in
-// the batch. The order inside a group is the order they were sent in.
-func groupByUser(keys [][]byte) [][]int {
+// item is what the handling step needs to know about a message: whose it is and which one it is.
+type item struct {
+	key      []byte // the user
+	producer int    // which sender
+	seq      int64  // the number of the message in its stream
+}
+
+// groupByUser groups the items by their key (the user). The order inside a group is the order they were sent in.
+func groupByUser(items []item) [][]item {
 	index := map[string]int{}
-	var groups [][]int
-	for position, key := range keys {
-		g, seen := index[string(key)]
+	var groups [][]item
+	for _, it := range items {
+		g, seen := index[string(it.key)]
 		if !seen {
 			g = len(groups)
-			index[string(key)] = g
+			index[string(it.key)] = g
 			groups = append(groups, nil)
 		}
-		groups[g] = append(groups[g], position)
+		groups[g] = append(groups[g], it)
 	}
 	return groups
+}
+
+// batchTiming returns how long a batch took, and how long of that some groups were done while others still worked
+// (milliseconds). A batch without groups (all its messages belonged to another run) took no time and waited for nobody.
+func batchTiming(started time.Time, done []time.Time) (busyMs, waitMs float64) {
+	if len(done) == 0 {
+		return 0, 0
+	}
+	first, last := done[0], done[0]
+	for _, t := range done {
+		if t.Before(first) {
+			first = t
+		}
+		if t.After(last) {
+			last = t
+		}
+	}
+	return float64(last.Sub(started)) / 1e6, float64(last.Sub(first)) / 1e6
+}
+
+// orderCheck checks that the messages of one user are handled in the order they were sent.
+//
+// For every (user, sender) it remembers the number of the message handled last. A message with a lower number than that
+// was handled too late: it is counted as an order violation. A well built consumer never has one.
+type orderCheck struct {
+	mu         sync.Mutex
+	last       map[orderKey]int64
+	violations int64
+}
+
+type orderKey struct {
+	user     string
+	producer int
+}
+
+func newOrderCheck() *orderCheck { return &orderCheck{last: map[orderKey]int64{}} }
+
+// check remembers that the item is handled now. It returns false when it came after a later message of the same user.
+func (o *orderCheck) check(it item) bool {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	key := orderKey{string(it.key), it.producer}
+	if last, seen := o.last[key]; seen && it.seq < last {
+		o.violations++
+		return false
+	}
+	o.last[key] = it.seq
+	return true
 }

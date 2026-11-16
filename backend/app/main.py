@@ -9,7 +9,7 @@ from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconn
 from fastapi.responses import FileResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import analysis, catalog, config, security
+from . import analysis, catalog, config, reports, security
 from .docker_service import DockerService
 from .hub import Hub
 from .kafka_service import KafkaService
@@ -89,10 +89,17 @@ async def guard(request: Request, call_next):
     """Refuse foreign hosts and cross-site changes, limit worker reports, add the security headers."""
     if not security.host_allowed(request.headers.get("host")):
         return PlainTextResponse("Unknown host.", status_code=400)
-    if request.method not in ("GET", "HEAD", "OPTIONS") and not security.origin_allowed(request.headers.get("origin")):
+    if request.method not in ("GET", "HEAD", "OPTIONS") and not security.origin_allowed(
+        request.headers.get("origin"), request.headers.get("host")
+    ):
         return PlainTextResponse("Cross-site request refused.", status_code=403)
-    if request.url.path == "/internal/report" and int(request.headers.get("content-length") or 0) > security.MAX_REPORT_BYTES:
-        return PlainTextResponse("Report too large.", status_code=413)
+    if request.url.path == "/internal/report":
+        try:
+            declared = int(request.headers.get("content-length") or 0)
+        except ValueError:
+            return PlainTextResponse("Bad Content-Length.", status_code=400)
+        if declared > security.MAX_REPORT_BYTES:
+            return PlainTextResponse("Report too large.", status_code=413)
     response = await call_next(request)
     for name, value in security.SECURITY_HEADERS.items():
         response.headers.setdefault(name, value)
@@ -265,6 +272,8 @@ async def queues():
 
 @app.delete("/api/queues/{name}")
 async def delete_queue(name: str):
+    if not security.QUEUE_NAME.fullmatch(name):  # the name goes into a Docker label filter and a Kafka request
+        raise HTTPException(422, "A queue name has letters, digits, dots, dashes and underscores, up to 64 characters.")
     if runs.current and runs.current["status"] in ("pending", "running"):
         raise HTTPException(409, "A run is in progress.")
     await asyncio.to_thread(
@@ -279,7 +288,7 @@ async def delete_queue(name: str):
 
 @app.get("/api/containers/{name}/logs")
 async def container_logs(name: str, tail: int = 200):
-    if not name.startswith(f"{config.PREFIX}-"):
+    if not security.container_name_ok(name):
         raise HTTPException(404, "Unknown container.")
     return {"logs": await asyncio.to_thread(docker_svc.logs, name, min(max(tail, 1), 1000))}
 
@@ -304,16 +313,31 @@ async def healthz():
 
 @app.post("/internal/report")
 async def report(request: Request):
-    """Receive the once-per-second progress report of a worker. Internal: only the sandbox network can reach it."""
-    runs.handle_report(await request.json())
+    """Receive the once-per-second progress report of a worker. Internal: only the sandbox network can reach it.
+
+    Whatever arrives is checked first (`reports.parse_report`): a body that is too big, is not JSON or does not have the
+    fields of a report is answered with a 4xx and the run is left as it was.
+    """
+    body = bytearray()
+    async for chunk in request.stream():  # the size is counted as it arrives: a missing or false Content-Length changes nothing
+        body += chunk
+        if len(body) > security.MAX_REPORT_BYTES:
+            raise HTTPException(413, "The report is too large.")
+    try:
+        parsed = reports.parse_report(bytes(body))
+    except reports.ReportError as exc:
+        raise HTTPException(exc.status, str(exc)) from exc
+    runs.handle_report(parsed)
     return {}
 
 
 @app.websocket("/ws/logs/{name}")
 async def ws_logs(ws: WebSocket, name: str):
     """Stream the log of one lab container to the browser as it grows."""
-    allowed = security.host_allowed(ws.headers.get("host")) and security.origin_allowed(ws.headers.get("origin"))
-    if not allowed or not name.startswith(f"{config.PREFIX}-") or docker_svc.client is None:
+    allowed = security.host_allowed(ws.headers.get("host")) and security.origin_allowed(
+        ws.headers.get("origin"), ws.headers.get("host")
+    )
+    if not allowed or not security.container_name_ok(name) or docker_svc.client is None:
         await ws.close(code=1008)
         return
     await ws.accept()
@@ -351,7 +375,10 @@ async def ws_logs(ws: WebSocket, name: str):
 @app.websocket("/ws")
 async def ws_endpoint(ws: WebSocket):
     """WebSocket that streams live snapshots to the browser. Only this app's own page may open it."""
-    if not (security.host_allowed(ws.headers.get("host")) and security.origin_allowed(ws.headers.get("origin"))):
+    if not (
+        security.host_allowed(ws.headers.get("host"))
+        and security.origin_allowed(ws.headers.get("origin"), ws.headers.get("host"))
+    ):
         await ws.close(code=1008)
         return
     await hub.add(ws)
@@ -376,8 +403,12 @@ async def spa(path: str):
     """Serve the built frontend; unknown paths return index.html so client-side routes work."""
     if path.startswith(("api/", "internal/")):
         raise HTTPException(404)
-    candidate = (config.STATIC_DIR / path).resolve()
-    if path and candidate.is_file() and config.STATIC_DIR.resolve() in candidate.parents:
+    try:
+        candidate = (config.STATIC_DIR / path).resolve()
+        is_static_file = bool(path) and candidate.is_file() and config.STATIC_DIR.resolve() in candidate.parents
+    except (OSError, ValueError):  # a path with a null byte or one the system cannot resolve is not a file of ours
+        is_static_file = False
+    if is_static_file:
         return FileResponse(candidate)
     index = config.STATIC_DIR / "index.html"
     if index.exists():

@@ -7,7 +7,7 @@ import uuid
 
 from fastapi import HTTPException
 
-from . import analysis, budget, config, contract
+from . import advice, analysis, budget, config, contract
 from .docker_service import DockerService
 from .hub import Hub
 from .kafka_service import KafkaService, OffsetReader
@@ -77,6 +77,7 @@ class RunManager:
             "producer_mb": req.producer.count * req.producer.memory_mb,
         }
         chk["idle_workers"] = max(0, req.workers.count - req.partitions)
+        chk["warnings"] = advice.warnings(req)  # what to expect from big numbers; nothing is refused
         return chk
 
     # ---------- start / cancel ----------
@@ -99,6 +100,7 @@ class RunManager:
             "cancel": False,
             "workers": {},
             "producers": {},  # latest report of each producer, by container name
+            "stopped_workers": [],  # workers that stopped during the run (killed or crashed)
             "baseline": [],
             "hist_sec": [0] * (len(EDGES) + 1),
             "hist_total": [0] * (len(EDGES) + 1),
@@ -183,17 +185,35 @@ class RunManager:
         return {k: c[k] for k in keys}
 
     # ---------- reports from workers ----------
-    def handle_report(self, p: dict):
-        """Merge one progress report from a worker or producer (POST /internal/report) into the run state."""
+    @staticmethod
+    def expected_names(run: dict) -> tuple[set[str], set[str]]:
+        """The container names of the senders and of the workers this run started: the only ones a report may come from."""
+        req = run["req"]
+        senders = {config.container_name(req.queue, f"producer{i + 1}") for i in range(req.producer.count)}
+        workers = {config.container_name(req.queue, f"w{i + 1}") for i in range(req.workers.count)}
+        return senders, workers
+
+    def handle_report(self, p: dict) -> bool:
+        """Merge one progress report from a worker or producer (POST /internal/report) into the run state.
+
+        `p` has been checked by `reports.parse_report`. The report is still not trusted to name a container this run did
+        not start, and the run state is only touched once everything it needs is known to be there: a report that does not
+        fit is dropped whole (False), never merged halfway.
+        """
         run = self.current
         if not run or p.get("runId") != run["id"]:
-            return
+            return False
+        senders, workers = self.expected_names(run)
         if p.get("role") == "producer":
+            if p.get("worker") not in senders:
+                return False
             before = run["producers"].get(p["worker"])
             # The rate comes from two reports and their own timestamps, so it does not jump with our sampling.
             p["rate"] = (p["sent"] - before["sent"]) / (p["ts"] - before["ts"]) if before and p["ts"] > before["ts"] else 0
             run["producers"][p["worker"]] = p
-            return
+            return True
+        if p.get("worker") not in workers or len(p.get("hist", ())) != len(run["hist_sec"]):
+            return False
         w = run["workers"].setdefault(p["worker"], {"received": 0, "ts": None, "rate": 0})
         rate = 0
         if w["ts"] and p["ts"] > w["ts"]:
@@ -203,6 +223,9 @@ class RunManager:
             duplicates=p["duplicates"],
             ranges=p["ranges"],
             overflow=p["overflow"],
+            order_violations=p.get("orderViolations", 0),
+            batch_busy_ms=p.get("batchBusyMs", 0),
+            batch_wait_ms=p.get("batchWaitMs", 0),
             errors=p["errors"],
             offsets=p["offsets"],
             assigned=p["assigned"],
@@ -217,6 +240,7 @@ class RunManager:
         for i, n in enumerate(p["hist"]):
             run["hist_sec"][i] += n
             run["hist_total"][i] += n
+        return True
 
     def _rates(self, run, now: float) -> tuple[int, int]:
         """Messages per second sent and processed right now: the sum of what the senders and workers last reported.
@@ -425,6 +449,11 @@ class RunManager:
                     f"{who} ran out of memory and was stopped by Docker (limit {container.get('limit_mb')} MB). "
                     f"Give {setting.lower()} more memory in the form (step {4 if setting == 'Senders' else 3}) and run again."
                 )
+        for name in run["workers"]:  # a worker that stops mid-run: its partitions move to the others, the run goes on
+            container = next((c for c in self.containers if c["name"] == name), None)
+            if container and container["state"] == "exited" and name not in run["stopped_workers"]:
+                run["stopped_workers"].append(name)
+                self._log(run, f"{name} stopped during the run")
         for name in producer_names:
             container = next((c for c in self.containers if c["name"] == name), None)
             if container and container["state"] == "exited" and not run["producers"].get(name, {}).get("done"):
@@ -516,6 +545,8 @@ class RunManager:
             "duplicates": tot["duplicates"],
             "lost": max(0, tot["sent"] - tot["unique"]),
             "errors": tot["errors"],
+            "order_violations": tot["order_violations"],
+            "batch_wait_pct": tot["batch_wait_pct"],
             "avg_recv_rate": round(tot["unique"] / max(1.0, active_time)),
             "peak_recv_rate": max((s["recv_rate"] for s in samples), default=0),
             "peak_send_rate": max((s["send_rate"] for s in samples), default=0),

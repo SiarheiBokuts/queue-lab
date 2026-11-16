@@ -12,8 +12,16 @@ static AGENT: OnceLock<ureq::Agent> = OnceLock::new();
 
 /// POST a progress report to the backend. A failed report is logged and skipped, never fatal.
 pub fn post(payload: &Value) {
-    let agent = AGENT.get_or_init(|| ureq::Agent::config_builder().timeout_global(Some(Duration::from_secs(3))).build().into());
-    if let Err(error) = agent.post(&crate::settings::get().report_url).send_json(payload) {
+    let agent = AGENT.get_or_init(|| {
+        ureq::Agent::config_builder()
+            .timeout_global(Some(Duration::from_secs(3)))
+            .build()
+            .into()
+    });
+    if let Err(error) = agent
+        .post(&crate::settings::get().report_url)
+        .send_json(payload)
+    {
         println!("report failed: {error}");
     }
 }

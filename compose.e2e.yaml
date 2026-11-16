@@ -1,0 +1,26 @@
+# End-to-end tests and the README screenshots. The lab must be running (`docker compose up`).
+#
+#   docker compose -f compose.e2e.yaml run --rm e2e                      the fast tests (pages, the form, security)
+#   docker compose -f compose.e2e.yaml run --rm e2e npm run test:slow    a real run in two languages (a few minutes)
+#   docker compose -f compose.e2e.yaml run --rm e2e npm run screenshots  new screenshots into docs/screenshots
+#
+# The container joins the sandbox network of the lab: the app only answers to localhost and to its own alias there.
+services:
+  e2e:
+    image: mcr.microsoft.com/playwright:v1.60.0-noble
+    working_dir: /e2e
+    volumes:
+      - ./e2e:/e2e
+      - ./docs/screenshots:/screenshots
+    environment:
+      BASE_URL: http://queuelab-app:8000
+      SCREENSHOTS_DIR: /screenshots
+    networks: [sandbox]
+    # The packages are installed first, whatever command is given (node_modules appear in e2e/ on the host, git ignores them).
+    entrypoint: ["sh", "-c", "npm ci --no-audit --no-fund >/dev/null 2>&1 && exec \"$$@\"", "--"]
+    command: ["npm", "test"]
+
+networks:
+  sandbox:
+    external: true
+    name: queue-lab-sandbox

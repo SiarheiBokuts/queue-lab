@@ -24,3 +24,7 @@ backend/data/
 .DS_Store
 Thumbs.db
 backend/tests/.data/
+
+# Playwright
+test-results/
+playwright-report/

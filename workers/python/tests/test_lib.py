@@ -5,6 +5,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import pytest  # noqa: E402
+
 from lib import SeqRanges, bucket, build_header, pacing_chunk, pacing_delay, parse_edges, parse_header  # noqa: E402
 
 EDGES = [0.5, 1, 2, 5, 10]
@@ -119,19 +120,52 @@ def test_a_user_always_lands_in_the_same_partition() -> None:
 
 
 def test_messages_are_grouped_by_user_and_keep_their_order() -> None:
-    from lib import group_by_user
+    from lib import Item, group_by_user
 
-    class Message:
-        def __init__(self, key: bytes, n: int) -> None:
-            self._key, self.n = key, n
-
-        def key(self) -> bytes:
-            return self._key
-
-    batch = [Message(b"user-1", 1), Message(b"user-2", 2), Message(b"user-1", 3), Message(b"user-1", 4)]
+    batch = [Item(b"user-1", 0, 1), Item(b"user-2", 0, 2), Item(b"user-1", 0, 3), Item(b"user-1", 0, 4)]
     groups = group_by_user(batch)
-    assert [[m.n for m in g] for g in groups] == [[1, 3, 4], [2]]  # one group per user, in the order sent
+    assert [[i.seq for i in g] for g in groups] == [[1, 3, 4], [2]]  # one group per user, in the order sent
     assert group_by_user([]) == []
+
+
+def test_batch_timing_measures_the_wait_for_the_slowest_group() -> None:
+    from lib import batch_timing
+
+    busy_ms, wait_ms = batch_timing(10.0, [10.5, 12.0, 11.0])
+    assert (round(busy_ms), round(wait_ms)) == (2000, 1500)  # the batch took 2 s, 1.5 s after the first group was done
+    assert batch_timing(10.0, [10.5]) == (500.0, 0.0)  # one group: nobody waits
+
+
+def test_a_batch_without_groups_takes_no_time_and_does_not_crash() -> None:
+    from lib import batch_timing
+
+    assert batch_timing(10.0, []) == (0.0, 0.0)  # all messages belonged to another run
+
+
+def test_a_user_handled_in_order_has_no_violation() -> None:
+    from lib import Item, OrderCheck
+
+    order = OrderCheck()
+    assert all(order.check(Item(b"user-1", 0, seq)) for seq in (1, 2, 3, 3, 10))  # a repeat of 3 is not out of order
+    assert order.violations == 0
+
+
+def test_a_message_handled_after_a_later_one_is_a_violation() -> None:
+    from lib import Item, OrderCheck
+
+    order = OrderCheck()
+    order.check(Item(b"user-1", 0, 5))
+    assert order.check(Item(b"user-1", 0, 4)) is False
+    assert order.violations == 1
+
+
+def test_users_and_senders_are_checked_independently() -> None:
+    from lib import Item, OrderCheck
+
+    order = OrderCheck()
+    order.check(Item(b"user-1", 0, 9))
+    assert order.check(Item(b"user-2", 0, 1)) and order.check(Item(b"user-1", 1, 1))  # another user, another sender
+    assert order.violations == 0
 
 def test_the_json_work_parses_and_writes_the_document_and_runs_in_a_pool_of_processes() -> None:
     import json

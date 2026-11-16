@@ -18,7 +18,11 @@ const failed = computed(() => props.run?.status === 'failed')
 const items = computed(() => [
   { n: 1, title: 'Prepare', text: 'Images, Kafka, the queue, workers and the producer are started' },
   { n: 2, title: 'Send and process', text: 'The producer sends the messages, the workers handle them' },
-  { n: 3, title: failed.value ? 'Failed' : 'Report', text: failed.value ? 'Something went wrong: see the details below' : 'The numbers, charts and the setup' },
+  {
+    n: 3,
+    title: failed.value ? 'Failed' : 'Report',
+    text: failed.value ? 'Something went wrong: see the details below' : 'The numbers, charts and the setup',
+  },
 ])
 const langs = computed<string[]>(() => props.comparison?.langs ?? [])
 </script>
@@ -37,7 +41,11 @@ const langs = computed<string[]>(() => props.comparison?.langs ?? [])
         }"
       >
         <div class="flex items-center gap-2">
-          <span class="badge" :class="phase > i.n ? 'ok' : phase === i.n ? (failed && i.n === 3 ? 'bad' : 'info') : ''" style="display: inline-flex; align-items: center; justify-content: center; min-width: 22px">
+          <span
+            class="badge"
+            :class="phase > i.n ? 'ok' : phase === i.n ? (failed && i.n === 3 ? 'bad' : 'info') : ''"
+            style="display: inline-flex; align-items: center; justify-content: center; min-width: 22px"
+          >
             <Check v-if="phase > i.n" :size="12" />
             <LoaderCircle v-else-if="phase === i.n && i.n < 3" :size="12" class="spin" />
             <template v-else>{{ i.n }}</template>
@@ -59,7 +67,9 @@ const langs = computed<string[]>(() => props.comparison?.langs ?? [])
         </span>
         <span v-if="k < langs.length - 1" class="cmp-gap">
           <ChevronRight :size="13" />
-          <template v-if="comparison.step === k + 1 && comparison.cooldown_left > 0">pause {{ comparison.cooldown_left }} s<ChevronRight :size="13" /></template>
+          <template v-if="comparison.step === k + 1 && comparison.cooldown_left > 0"
+            >pause {{ comparison.cooldown_left }} s<ChevronRight :size="13"
+          /></template>
         </span>
       </template>
       <ChevronRight :size="13" class="cmp-gap" /><span class="lbl">compare</span>
@@ -68,11 +78,46 @@ const langs = computed<string[]>(() => props.comparison?.langs ?? [])
 </template>
 
 <style scoped>
-.spin { animation: spin 1s linear infinite; }
-@keyframes spin { to { transform: rotate(360deg); } }
-.cmp-line { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
-.cmp-chip { display: inline-flex; align-items: center; gap: 6px; padding: 4px 11px; border-radius: 999px; font-size: 12px; background: #1b1b1f; border: 1px solid #323238; color: #a1a1aa; }
-.cmp-chip.done { color: #d4d4d8; }
-.cmp-chip.now { color: #fff; border-color: #3b82f6; background: #0c2547; box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15); }
-.cmp-gap { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; color: #71717a; }
+.spin {
+  animation: spin 1s linear infinite;
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.cmp-line {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+}
+.cmp-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 11px;
+  border-radius: 999px;
+  font-size: 12px;
+  background: #1b1b1f;
+  border: 1px solid #323238;
+  color: #a1a1aa;
+}
+.cmp-chip.done {
+  color: #d4d4d8;
+}
+.cmp-chip.now {
+  color: #fff;
+  border-color: #3b82f6;
+  background: #0c2547;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15);
+}
+.cmp-gap {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--faint);
+}
 </style>

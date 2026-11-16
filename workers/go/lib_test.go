@@ -148,12 +148,60 @@ func TestAUserAlwaysLandsInTheSamePartition(t *testing.T) {
 }
 
 func TestMessagesAreGroupedByUserAndKeepTheirOrder(t *testing.T) {
-	keys := [][]byte{[]byte("user-1"), []byte("user-2"), []byte("user-1"), []byte("user-1")}
-	groups := groupByUser(keys)
-	if len(groups) != 2 || len(groups[0]) != 3 || groups[0][0] != 0 || groups[0][1] != 2 || groups[0][2] != 3 || len(groups[1]) != 1 || groups[1][0] != 1 {
+	items := []item{
+		{[]byte("user-1"), 0, 1}, {[]byte("user-2"), 0, 2}, {[]byte("user-1"), 0, 3}, {[]byte("user-1"), 0, 4},
+	}
+	groups := groupByUser(items)
+	if len(groups) != 2 || len(groups[0]) != 3 || groups[0][0].seq != 1 || groups[0][1].seq != 3 || groups[0][2].seq != 4 ||
+		len(groups[1]) != 1 || groups[1][0].seq != 2 {
 		t.Fatalf("unexpected groups: %v", groups)
 	}
 	if len(groupByUser(nil)) != 0 {
 		t.Fatal("an empty batch has no groups")
+	}
+}
+
+func TestABatchTakesAsLongAsItsSlowestGroup(t *testing.T) {
+	start := time.Unix(100, 0)
+	busy, wait := batchTiming(start, []time.Time{start.Add(500 * time.Millisecond), start.Add(2 * time.Second), start.Add(time.Second)})
+	if busy != 2000 || wait != 1500 {
+		t.Fatalf("busy %v wait %v", busy, wait)
+	}
+	if busy, wait = batchTiming(start, []time.Time{start.Add(400 * time.Millisecond)}); busy != 400 || wait != 0 {
+		t.Fatal("one group: nobody waits")
+	}
+}
+
+func TestABatchWithoutGroupsTakesNoTimeAndDoesNotPanic(t *testing.T) {
+	if busy, wait := batchTiming(time.Now(), nil); busy != 0 || wait != 0 {
+		t.Fatal("all messages belonged to another run")
+	}
+}
+
+func TestAUserHandledInOrderHasNoViolation(t *testing.T) {
+	order := newOrderCheck()
+	for _, seq := range []int64{1, 2, 3, 3, 10} { // a repeat of 3 is not out of order
+		if !order.check(item{[]byte("user-1"), 0, seq}) {
+			t.Fatalf("seq %d should be in order", seq)
+		}
+	}
+	if order.violations != 0 {
+		t.Fatal("no violation expected")
+	}
+}
+
+func TestAMessageHandledAfterALaterOneIsAViolation(t *testing.T) {
+	order := newOrderCheck()
+	order.check(item{[]byte("user-1"), 0, 5})
+	if order.check(item{[]byte("user-1"), 0, 4}) || order.violations != 1 {
+		t.Fatal("one violation expected")
+	}
+}
+
+func TestUsersAndSendersAreCheckedIndependently(t *testing.T) {
+	order := newOrderCheck()
+	order.check(item{[]byte("user-1"), 0, 9})
+	if !order.check(item{[]byte("user-2"), 0, 1}) || !order.check(item{[]byte("user-1"), 1, 1}) || order.violations != 0 {
+		t.Fatal("another user or another sender is not out of order")
 	}
 }

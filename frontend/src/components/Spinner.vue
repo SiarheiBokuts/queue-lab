@@ -10,7 +10,18 @@ withDefaults(defineProps<{ size?: number }>(), { size: 14 })
 </template>
 
 <style>
-.qa-spin { animation: qa-spin 0.9s linear infinite; flex: none; }
-@keyframes qa-spin { to { transform: rotate(360deg); } }
-@media (prefers-reduced-motion: reduce) { .qa-spin { animation-duration: 3s; } }
+.qa-spin {
+  animation: qa-spin 0.9s linear infinite;
+  flex: none;
+}
+@keyframes qa-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .qa-spin {
+    animation-duration: 3s;
+  }
+}
 </style>

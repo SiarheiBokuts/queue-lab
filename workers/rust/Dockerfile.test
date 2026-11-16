@@ -1,7 +1,9 @@
-# Unit tests of the Rust worker helpers: docker build -f workers/rust/Dockerfile.test workers/rust
+# Checks of the Rust worker: formatting (rustfmt), lints (clippy) and unit tests.
+# docker build -f workers/rust/Dockerfile.test workers/rust
 FROM rust:1.99-bookworm
 RUN apt-get update && apt-get install -y --no-install-recommends cmake && rm -rf /var/lib/apt/lists/*
+RUN rustup component add clippy rustfmt
 WORKDIR /src
 COPY Cargo.toml ./
 COPY src ./src
-RUN cargo test --release
+RUN cargo fmt --check && cargo clippy --all-targets --release -- -D warnings && cargo test --release

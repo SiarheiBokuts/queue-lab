@@ -14,9 +14,9 @@ use rdkafka::message::BorrowedMessage;
 use rdkafka::Message;
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, Condvar, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
-use crate::logic::{group_by_user, now_ms, parse_header};
+use crate::logic::{batch_timing, group_by_user, now_ms, parse_header, Item, OrderCheck};
 use crate::reporting::{start_reporter, STOPPING};
 use crate::settings::{client_config, get, required};
 use crate::stats::{report, Stats};
@@ -29,7 +29,10 @@ struct Slots {
 
 impl Slots {
     fn new(places: usize) -> Self {
-        Slots { free: Mutex::new(places), freed: Condvar::new() }
+        Slots {
+            free: Mutex::new(places),
+            freed: Condvar::new(),
+        }
     }
 
     fn take(&self) {
@@ -89,19 +92,39 @@ fn handle(scenario: &str, param: u64, cpu: &Slots) {
 // @scenario-end
 
 /// Handle the messages of one user one after another.
-fn handle_group(count: usize, scenario: &str, param: u64, cpu: &Slots) {
-    for _ in 0..count {
+fn handle_group(
+    group: &[Item],
+    scenario: &str,
+    param: u64,
+    cpu: &Slots,
+    order: &OrderCheck,
+) -> Instant {
+    for item in group {
+        order.check(item);
         handle(scenario, param, cpu);
     }
+    Instant::now() // the time this group was done
 }
 
 /// Handle all groups at the same time and wait until every one of them is done.
-fn run_batch(groups: &[Vec<usize>], scenario: &str, param: u64, cpu: &Slots) {
-    std::thread::scope(|scope| {
-        for group in groups {
-            scope.spawn(move || handle_group(group.len(), scenario, param, cpu));
-        }
+///
+/// Returns how long the batch took and how long of that some groups were done while others still worked (milliseconds).
+fn run_batch(
+    groups: &[Vec<Item>],
+    scenario: &str,
+    param: u64,
+    cpu: &Slots,
+    order: &OrderCheck,
+) -> (f64, f64) {
+    let started = Instant::now();
+    let done: Vec<Instant> = std::thread::scope(|scope| {
+        let running: Vec<_> = groups
+            .iter()
+            .map(|group| scope.spawn(move || handle_group(group, scenario, param, cpu, order)))
+            .collect();
+        running.into_iter().map(|h| h.join().unwrap()).collect()
     });
+    batch_timing(started, &done)
 }
 
 /// Tell Kafka that everything read so far is handled. A crash before this repeats the batch.
@@ -113,34 +136,52 @@ fn commit(consumer: &BaseConsumer) {
 
 pub fn run() {
     let scenario = std::env::var("SCENARIO").unwrap_or_else(|_| "echo".to_string());
-    let param: u64 = std::env::var("SCENARIO_PARAM").ok().and_then(|v| v.parse().ok()).unwrap_or(0);
+    let param: u64 = std::env::var("SCENARIO_PARAM")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(0);
     let stats = Stats::new();
 
     // Offset reset, commit and timeout settings come from the backend (the same values for every language).
     let mut config = client_config("CONSUMER_CONF");
     config.set("group.id", required("GROUP_ID"));
-    let consumer: Arc<BaseConsumer> = Arc::new(config.create().expect("could not create the consumer"));
-    consumer.subscribe(&[&get().topic]).expect("could not subscribe");
+    let consumer: Arc<BaseConsumer> =
+        Arc::new(config.create().expect("could not create the consumer"));
+    consumer
+        .subscribe(&[&get().topic])
+        .expect("could not subscribe");
 
     let periodic = (stats.clone(), consumer.clone());
     start_reporter(move || report(&periodic.0, &periodic.1, false), || true);
 
     let cpu = Slots::new(get().cpu_threads);
+    let order = stats.lock().unwrap().order.clone();
     while !STOPPING.load(Ordering::Relaxed) {
         let batch = read_batch(&consumer, &stats);
         if batch.is_empty() {
             continue;
         }
         let arrived = now_ms();
-        let mut keys: Vec<&[u8]> = Vec::new();
+        let mut items: Vec<Item> = Vec::new();
         for message in &batch {
-            let Some(header) = message.payload().and_then(|p| parse_header(p, &get().run_id)) else {
+            let Some(header) = message
+                .payload()
+                .and_then(|p| parse_header(p, &get().run_id))
+            else {
                 continue; // a leftover from another run: ignore it
             };
-            stats.lock().unwrap().record(&header, message.partition(), message.offset(), arrived);
-            keys.push(message.key().unwrap_or(b""));
+            stats
+                .lock()
+                .unwrap()
+                .record(&header, message.partition(), message.offset(), arrived);
+            items.push(Item {
+                key: message.key().unwrap_or(b"").to_vec(),
+                producer: header.producer,
+                seq: header.seq,
+            });
         }
-        run_batch(&group_by_user(&keys), &scenario, param, &cpu);
+        let (busy_ms, wait_ms) = run_batch(&group_by_user(items), &scenario, param, &cpu, &order);
+        stats.lock().unwrap().add_batch(busy_ms, wait_ms);
         commit(&consumer);
     }
     report(&stats, &consumer, true);

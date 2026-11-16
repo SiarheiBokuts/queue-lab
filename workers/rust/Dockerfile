@@ -3,6 +3,7 @@
 # The Kafka client is librdkafka (built from source) like the Python, Node.js and Go ones, so settings are identical.
 # The first build takes several minutes because librdkafka is compiled; later runs reuse the image.
 FROM rust:1.99-bookworm AS build
+# hadolint ignore=DL3008
 RUN apt-get update && apt-get install -y --no-install-recommends cmake && rm -rf /var/lib/apt/lists/*
 WORKDIR /src
 COPY Cargo.toml ./

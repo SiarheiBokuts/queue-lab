@@ -19,7 +19,7 @@ from confluent_kafka import Consumer
 import cpu
 import reporting
 import settings
-from lib import group_by_user, parse_header
+from lib import Item, OrderCheck, batch_timing, group_by_user, parse_header
 from stats import ConsumerStats
 
 SCENARIO = os.environ.get("SCENARIO", "echo")
@@ -45,7 +45,8 @@ def make_handle(cpu_pool):
         if SCENARIO == "delay" and PARAM > 0:
             time.sleep(PARAM / 1000)  # wait PARAM milliseconds and do nothing else
         elif SCENARIO == "json" and PARAM > 0:
-            # Parse the document and write it back PARAM times. It runs in another process, so this one stays free to read.
+            # Parse the document and write it back PARAM times. It runs in another process,
+            # so this one stays free to read.
             cpu_pool.submit(cpu.work, settings.JSON_DOC, PARAM).result()
         # echo: nothing to do
 
@@ -53,16 +54,22 @@ def make_handle(cpu_pool):
     return handle
 
 
-def handle_group(group: list, handle) -> None:
-    """Handle the messages of one user one after another."""
-    for _ in group:
+def handle_group(group: list[Item], handle, order: OrderCheck) -> float:
+    """Handle the messages of one user one after another. Returns the time the group was done."""
+    for item in group:
+        order.check(item)
         handle()
+    return time.perf_counter()
 
 
-def run_batch(groups: list[list], handle, executor: ThreadPoolExecutor) -> None:
-    """Handle all groups at the same time and wait until every one of them is done."""
-    for future in [executor.submit(handle_group, group, handle) for group in groups]:
-        future.result()
+def run_batch(groups: list[list[Item]], handle, order: OrderCheck, executor: ThreadPoolExecutor) -> tuple[float, float]:
+    """Handle all groups at the same time and wait until every one of them is done.
+
+    Returns how long the batch took and how long of that some groups were done while others still worked (milliseconds).
+    """
+    started = time.perf_counter()
+    done = [f.result() for f in [executor.submit(handle_group, g, handle, order) for g in groups]]
+    return batch_timing(started, done)
 
 
 def commit(consumer: Consumer) -> None:
@@ -92,7 +99,8 @@ def run() -> None:
             if not batch:
                 continue
             mine = stats.record_batch(batch, time.time() * 1000, parse_header)
-            run_batch(group_by_user(mine), handle, executor)
+            busy_ms, wait_ms = run_batch(group_by_user(mine), handle, stats.order, executor)
+            stats.add_batch(busy_ms, wait_ms)
             commit(consumer)
     finally:
         executor.shutdown(wait=True)  # let the messages already taken finish before the final report

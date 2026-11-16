@@ -1,6 +1,7 @@
-# Unit tests of the Java worker helpers: docker build -f workers/java/Dockerfile.test workers/java
+# Checks of the Java worker: formatting (google-java-format via Spotless), compiler warnings and unit tests.
+# docker build -f workers/java/Dockerfile.test workers/java
 FROM maven:3-eclipse-temurin-25
 WORKDIR /src
 COPY pom.xml ./
 COPY src ./src
-RUN mvn -B -q test
+RUN mvn -B -q spotless:check && mvn -B -q test

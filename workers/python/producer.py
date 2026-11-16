@@ -61,7 +61,8 @@ def run() -> None:
         payload = header + padding
         while True:
             try:
-                producer.produce(settings.TOPIC, payload, key=user_key(part, i, nparts, users), partition=part, on_delivery=on_delivery)
+                key = user_key(part, i, nparts, users)
+                producer.produce(settings.TOPIC, payload, key=key, partition=part, on_delivery=on_delivery)
                 break
             except BufferError:
                 producer.poll(0.05)  # the local queue is full: let the client drain it, then retry

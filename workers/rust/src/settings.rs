@@ -56,9 +56,21 @@ pub fn init() {
         report_url: required("REPORT_URL"),
         edges: parse_edges(&required("HIST_EDGES")),
         json_doc: std::env::var("JSON_DOC").unwrap_or_else(|_| "{}".to_string()),
-        cpu_threads: std::env::var("CPU_THREADS").ok().and_then(|v| v.parse().ok()).filter(|n| *n >= 1).unwrap_or(1),
-        batch_wait_ms: std::env::var("BATCH_WAIT_MS").ok().and_then(|v| v.parse().ok()).filter(|n| *n > 0).unwrap_or(50),
-        concurrency: std::env::var("CONCURRENCY").ok().and_then(|v| v.parse().ok()).filter(|n| *n >= 1).unwrap_or(1),
+        cpu_threads: std::env::var("CPU_THREADS")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .filter(|n| *n >= 1)
+            .unwrap_or(1),
+        batch_wait_ms: std::env::var("BATCH_WAIT_MS")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .filter(|n| *n > 0)
+            .unwrap_or(50),
+        concurrency: std::env::var("CONCURRENCY")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .filter(|n| *n >= 1)
+            .unwrap_or(1),
     };
     let _ = SETTINGS.set(settings);
 }
@@ -69,7 +81,8 @@ pub fn get() -> &'static Settings {
 
 /// The Kafka client config: the broker address plus the properties the backend sent as JSON (librdkafka names).
 pub fn client_config(variable: &str) -> ClientConfig {
-    let raw: Value = serde_json::from_str(&required(variable)).unwrap_or_else(|e| panic!("{variable} is not valid JSON: {e}"));
+    let raw: Value = serde_json::from_str(&required(variable))
+        .unwrap_or_else(|e| panic!("{variable} is not valid JSON: {e}"));
     let mut config = ClientConfig::new();
     config.set("bootstrap.servers", &get().boot);
     for (key, value) in raw.as_object().expect("a JSON object") {

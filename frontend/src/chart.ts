@@ -150,7 +150,7 @@ export function heatOption(rows: number[][], partitions: number) {
       axisLine: { show: false },
       axisTick: { show: false },
     },
-    visualMap: { min: 0, max, show: false, inRange: { color: [light() ? '#e8edf7' : '#18181b', '#1d4ed8', '#f59e0b', '#ef4444'] } },
+    visualMap: { min: 0, max, show: false, inRange: { color: light() ? ['#eef2fb', '#93b4f5', '#fbbf24', '#f97316', '#dc2626'] : ['#18181b', '#1d4ed8', '#f59e0b', '#ef4444'] } },
     series: [{ type: 'heatmap', data, itemStyle: { borderColor: light() ? '#ffffff' : '#09090b', borderWidth: 1 }, progressive: 0 }],
   }
 }

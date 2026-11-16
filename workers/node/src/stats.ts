@@ -1,5 +1,5 @@
 /** What a consumer counts about the messages it reads, and the report it sends once per second. */
-import { SeqRanges, bucket, type Header } from './lib.js';
+import { bucket, type Header, OrderCheck, SeqRanges } from './lib.js';
 
 export class ConsumerStats {
   received = 0;
@@ -12,6 +12,10 @@ export class ConsumerStats {
   private hist: number[];
   /** Which message numbers arrived: the lab counts lost and repeated ones from it. */
   private readonly seen = new SeqRanges();
+  /** The messages of a user must be handled in the order they were sent. */
+  readonly order = new OrderCheck();
+  private batchBusyMs = 0; // time spent handling batches
+  private batchWaitMs = 0; // of which some groups were done and the others still worked
 
   constructor(private readonly edges: readonly number[]) {
     this.hist = this.emptyHistogram();
@@ -19,6 +23,12 @@ export class ConsumerStats {
 
   private emptyHistogram(): number[] {
     return new Array<number>(this.edges.length + 1).fill(0);
+  }
+
+  /** Remember how long a batch took and how much of it was spent waiting for the slowest group. */
+  addBatch(busyMs: number, waitMs: number): void {
+    this.batchBusyMs += busyMs;
+    this.batchWaitMs += waitMs;
   }
 
   /** Count one message that arrived at `arrivedMs` (milliseconds) in `partition`. */
@@ -34,10 +44,26 @@ export class ConsumerStats {
   /** The report for the lab. The histogram is sent as the change since the last report, then reset. */
   report(base: { runId: string; worker: string }, assigned: number[], final: boolean): Record<string, unknown> {
     const payload = {
-      ...base, role: 'consumer', lang: 'node', ts: Date.now() / 1000,
-      ready: assigned.length > 0, assigned, received: this.received, duplicates: this.seen.repeats,
-      ranges: this.seen.report(), overflow: this.seen.overflow, errors: this.errors, offsets: this.offsets, hist: this.hist, final,
-      firstAt: this.firstAt, lastAt: this.lastAt, maxLatencyMs: this.maxLatencyMs,
+      ...base,
+      role: 'consumer',
+      lang: 'node',
+      ts: Date.now() / 1000,
+      ready: assigned.length > 0,
+      assigned,
+      received: this.received,
+      duplicates: this.seen.repeats,
+      ranges: this.seen.report(),
+      overflow: this.seen.overflow,
+      orderViolations: this.order.violations,
+      batchBusyMs: Math.round(this.batchBusyMs * 10) / 10,
+      batchWaitMs: Math.round(this.batchWaitMs * 10) / 10,
+      errors: this.errors,
+      offsets: this.offsets,
+      hist: this.hist,
+      final,
+      firstAt: this.firstAt,
+      lastAt: this.lastAt,
+      maxLatencyMs: this.maxLatencyMs,
     };
     this.hist = this.emptyHistogram();
     return payload;

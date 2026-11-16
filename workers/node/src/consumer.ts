@@ -13,7 +13,7 @@
 import type { KafkaMessage } from '@confluentinc/kafka-javascript/types/kafkajs.js';
 import { HashPool } from './cpu.js';
 import { kafka } from './kafka.js';
-import { groupByUser, makeHeaderParser, nowMs } from './lib.js';
+import { batchTiming, groupByUser, type Item, makeHeaderParser, nowMs, type OrderCheck } from './lib.js';
 import * as reporting from './reporting.js';
 import * as settings from './settings.js';
 import { ConsumerStats } from './stats.js';
@@ -30,7 +30,8 @@ function makeHandle(cpuPool: HashPool): () => Promise<void> {
    * json = parse a JSON document and write it back, like a service reading a request.
    */
   return async (): Promise<void> => {
-    if (SCENARIO === 'delay' && PARAM > 0) await reporting.sleep(PARAM); // wait PARAM milliseconds and do nothing else
+    if (SCENARIO === 'delay' && PARAM > 0)
+      await reporting.sleep(PARAM); // wait PARAM milliseconds and do nothing else
     else if (SCENARIO === 'json' && PARAM > 0) {
       // Parse the document and write it back PARAM times. It runs in another thread, so this one stays free to read.
       await cpuPool.run(settings.JSON_DOC, PARAM);
@@ -41,13 +42,23 @@ function makeHandle(cpuPool: HashPool): () => Promise<void> {
 }
 
 /** Handle the messages of one user one after another. */
-async function handleGroup(group: KafkaMessage[], handle: () => Promise<void>): Promise<void> {
-  for (let i = 0; i < group.length; i++) await handle();
+async function handleGroup(group: Item[], handle: () => Promise<void>, order: OrderCheck): Promise<number> {
+  for (const item of group) {
+    order.check(item);
+    await handle();
+  }
+  return performance.now(); // the time this group was done
 }
 
 /** Handle all groups at the same time and wait until every one of them is done. */
-async function runBatch(groups: KafkaMessage[][], handle: () => Promise<void>): Promise<void> {
-  await Promise.all(groups.map((group) => handleGroup(group, handle)));
+async function runBatch(
+  groups: Item[][],
+  handle: () => Promise<void>,
+  order: OrderCheck,
+): Promise<{ busyMs: number; waitMs: number }> {
+  const started = performance.now();
+  const done = await Promise.all(groups.map((group) => handleGroup(group, handle, order)));
+  return batchTiming(started, done);
 }
 
 export async function run(): Promise<void> {
@@ -68,7 +79,10 @@ export async function run(): Promise<void> {
   const sendReport = async (final: boolean): Promise<void> => {
     let assigned: number[] = [];
     try {
-      assigned = consumer.assignment().map((a) => a.partition).sort((a, b) => a - b);
+      assigned = consumer
+        .assignment()
+        .map((a) => a.partition)
+        .sort((a, b) => a - b);
     } catch {
       // not assigned yet
     }
@@ -84,19 +98,24 @@ export async function run(): Promise<void> {
     eachBatch: async ({ batch }) => {
       const arrivedMs = nowMs();
       const mine: KafkaMessage[] = [];
+      const items: Item[] = [];
       for (const m of batch.messages) {
         if (reporting.control.stopping) break;
         const header = m.value === null ? null : parse(m.value);
         if (header === null) continue; // empty, or a leftover from another run: ignore it
         stats.record(header, batch.partition, arrivedMs);
         mine.push(m);
+        items.push({ key: m.key ?? null, producer: header.producer, seq: header.seq });
       }
       stats.lastAt = Date.now() / 1000;
-      const next = mine.length > 0 ? parseInt(mine[mine.length - 1]!.offset, 10) + 1 : null; // the next offset to read
+      const last = mine.at(-1);
+      const next = last ? parseInt(last.offset, 10) + 1 : null; // the next offset to read
       if (next !== null) stats.offsets[batch.partition] = next; // also used for the lag
-      await runBatch(groupByUser(mine), handle);
+      const { busyMs, waitMs } = await runBatch(groupByUser(items), handle, stats.order);
+      stats.addBatch(busyMs, waitMs);
       // commit: tell Kafka that everything read so far is handled. A crash before this repeats the batch.
-      if (next !== null) await consumer.commitOffsets([{ topic: settings.TOPIC, partition: batch.partition, offset: String(next) }]);
+      if (next !== null)
+        await consumer.commitOffsets([{ topic: settings.TOPIC, partition: batch.partition, offset: String(next) }]);
     },
   });
 

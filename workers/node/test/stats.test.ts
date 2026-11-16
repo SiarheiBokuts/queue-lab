@@ -22,7 +22,12 @@ describe('ConsumerStats', () => {
     s.record(header(2, 1000), 2, 1000); // 1 is missing
     s.record(header(2, 1000), 2, 1000); // 2 again
     const r = s.report({ runId: 'r', worker: 'w' }, [2], false);
-    assert.deepEqual(r.ranges, { '0:2': [[0, 0], [2, 2]] }); // 1 is in no range: the lab counts it as lost
+    assert.deepEqual(r.ranges, {
+      '0:2': [
+        [0, 0],
+        [2, 2],
+      ],
+    }); // 1 is in no range: the lab counts it as lost
     assert.equal(r.duplicates, 1);
   });
 

@@ -11,7 +11,22 @@ const bg: Record<string, string> = { ok: '#052e22', info: '#0c2547', warn: '#3a2
     <h2 class="mb-3">Notes</h2>
     <div class="flex flex-col gap-2.5">
       <div v-for="(n, k) in notes" :key="k" class="flex gap-3 items-start">
-        <span :style="{ background: bg[n.level], color: color[n.level], width: '22px', height: '22px', borderRadius: '999px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: '12px', fontWeight: 700, flex: 'none' }">{{ mark[n.level] }}</span>
+        <span
+          :style="{
+            background: bg[n.level],
+            color: color[n.level],
+            width: '22px',
+            height: '22px',
+            borderRadius: '999px',
+            display: 'inline-flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            fontSize: '12px',
+            fontWeight: 700,
+            flex: 'none',
+          }"
+          >{{ mark[n.level] }}</span
+        >
         <span class="text-sm" style="line-height: 1.5">{{ n.text }}</span>
       </div>
     </div>

@@ -156,7 +156,17 @@ class DockerService:
             mem_limit=f"{mem_mb}m",
             memswap_limit=f"{mem_mb}m",
             nano_cpus=int(cpus * 1_000_000_000) if cpus else None,
+            **self.hardening(role),
         )
+
+    @staticmethod
+    def hardening(role: str) -> dict:
+        """Docker settings that take away what a sender or worker never needs: every Linux capability, and the way to get
+        more privileges later (setuid programs). Their code only reads from Kafka, computes and posts a report. The broker
+        keeps Docker's defaults: it is a third-party image the lab does not control."""
+        if role not in (config.ROLE_CONSUMER, config.ROLE_PRODUCER):
+            return {}
+        return {"cap_drop": ["ALL"], "security_opt": ["no-new-privileges"]}
 
     def remove(self, name: str):
         """Force-remove a container (and its anonymous volumes); a missing container is not an error."""

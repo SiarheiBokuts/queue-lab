@@ -14,24 +14,35 @@
 //! - padding: fills the message up to the size chosen in the UI
 
 use std::collections::HashMap;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 /// The header is far shorter than this; we never look at the (possibly large) padding to read it.
 pub const HEADER_MAX_BYTES: usize = 96;
 
 /// Parse the HIST_EDGES value, e.g. "0.5,1,2,5", into bucket edges in milliseconds.
 pub fn parse_edges(raw: &str) -> Vec<f64> {
-    raw.split(',').filter_map(|part| part.trim().parse().ok()).collect()
+    raw.split(',')
+        .filter_map(|part| part.trim().parse().ok())
+        .collect()
 }
 
 /// The histogram bucket a latency falls into: bucket i holds latencies <= edges[i]; the last bucket (index
 /// edges.len()) holds everything above the last edge. Counting messages per bucket keeps reports small.
 pub fn bucket(latency_ms: f64, edges: &[f64]) -> usize {
-    edges.iter().position(|edge| latency_ms <= *edge).unwrap_or(edges.len())
+    edges
+        .iter()
+        .position(|edge| latency_ms <= *edge)
+        .unwrap_or(edges.len())
 }
 
 /// Header of a message; the producer appends padding after it.
-pub fn build_header(run: &str, producer: usize, partition: usize, seq: u64, sent_ms: f64) -> Vec<u8> {
+pub fn build_header(
+    run: &str,
+    producer: usize,
+    partition: usize,
+    seq: u64,
+    sent_ms: f64,
+) -> Vec<u8> {
     format!("{run}|{producer}|{partition}|{seq}|{sent_ms:.3}|").into_bytes()
 }
 
@@ -88,7 +99,10 @@ impl SeqRanges {
                 return true;
             }
         }
-        if ranges.iter().any(|&(start, end)| start <= seq && seq <= end) {
+        if ranges
+            .iter()
+            .any(|&(start, end)| start <= seq && seq <= end)
+        {
             self.repeats += 1;
             return false;
         }
@@ -127,19 +141,76 @@ pub fn user_key(part: usize, i: usize, nparts: usize, users: usize) -> String {
     format!("user-{}", part + nparts * ((i / nparts) % per_partition))
 }
 
-/// Group messages by their key (the user). Returns, for each user, the positions of its messages in the batch; the
-/// order inside a group is the order they were sent in.
-pub fn group_by_user(keys: &[&[u8]]) -> Vec<Vec<usize>> {
-    let mut index: std::collections::HashMap<&[u8], usize> = std::collections::HashMap::new();
-    let mut groups: Vec<Vec<usize>> = Vec::new();
-    for (position, key) in keys.iter().enumerate() {
-        let group = *index.entry(key).or_insert_with(|| {
+/// What the handling step needs to know about a message: whose it is and which one it is.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Item {
+    /// The user.
+    pub key: Vec<u8>,
+    /// Which sender.
+    pub producer: usize,
+    /// The number of the message in its stream.
+    pub seq: u64,
+}
+
+/// Group the items by their key (the user). The order inside a group is the order they were sent in.
+pub fn group_by_user(items: Vec<Item>) -> Vec<Vec<Item>> {
+    let mut index: HashMap<Vec<u8>, usize> = HashMap::new();
+    let mut groups: Vec<Vec<Item>> = Vec::new();
+    for item in items {
+        let group = *index.entry(item.key.clone()).or_insert_with(|| {
             groups.push(Vec::new());
             groups.len() - 1
         });
-        groups[group].push(position);
+        groups[group].push(item);
     }
     groups
+}
+
+/// How long a batch took, and how long of that some groups were done while others still worked (milliseconds).
+/// A batch without groups (all its messages belonged to another run) took no time and waited for nobody.
+pub fn batch_timing(started: Instant, done: &[Instant]) -> (f64, f64) {
+    let (Some(first), Some(last)) = (done.iter().min(), done.iter().max()) else {
+        return (0.0, 0.0);
+    };
+    let ms = |d: Duration| d.as_secs_f64() * 1000.0;
+    (
+        ms(last.duration_since(started)),
+        ms(last.duration_since(*first)),
+    )
+}
+
+/// Checks that the messages of one user are handled in the order they were sent.
+///
+/// For every (user, sender) it remembers the number of the message handled last. A message with a lower number than
+/// that was handled too late: it is counted as an order violation. A well built consumer never has one.
+#[derive(Default)]
+pub struct OrderCheck {
+    last: std::sync::Mutex<HashMap<(Vec<u8>, usize), u64>>,
+    violations: std::sync::atomic::AtomicU64,
+}
+
+impl OrderCheck {
+    /// Remember that `item` is handled now. Returns false when it came after a later message of the same user.
+    pub fn check(&self, item: &Item) -> bool {
+        let mut last = self.last.lock().unwrap();
+        let key = (item.key.clone(), item.producer);
+        match last.get(&key) {
+            Some(&seen) if item.seq < seen => {
+                self.violations
+                    .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                false
+            }
+            _ => {
+                last.insert(key, item.seq);
+                true
+            }
+        }
+    }
+
+    /// How many messages were handled too late so far.
+    pub fn violations(&self) -> u64 {
+        self.violations.load(std::sync::atomic::Ordering::Relaxed)
+    }
 }
 pub fn pacing_delay(sent: u64, rate: f64, elapsed: Duration) -> Duration {
     if rate <= 0.0 {
@@ -158,7 +229,10 @@ pub fn pacing_chunk(rate: f64, max_chunk: usize) -> usize {
 
 /// Wall-clock time in milliseconds with sub-millisecond precision.
 pub fn now_ms() -> f64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs_f64() * 1000.0).unwrap_or(0.0)
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs_f64() * 1000.0)
+        .unwrap_or(0.0)
 }
 
 #[cfg(test)]
@@ -178,11 +252,72 @@ mod tests {
         assert_eq!(seen.len(), 60);
     }
 
+    fn item(key: &str, seq: u64) -> Item {
+        Item {
+            key: key.as_bytes().to_vec(),
+            producer: 0,
+            seq,
+        }
+    }
+
     #[test]
     fn messages_are_grouped_by_user_and_keep_their_order() {
-        let keys: Vec<&[u8]> = vec![b"user-1", b"user-2", b"user-1", b"user-1"];
-        assert_eq!(group_by_user(&keys), vec![vec![0, 2, 3], vec![1]]);
-        assert!(group_by_user(&[]).is_empty());
+        let items = vec![
+            item("user-1", 1),
+            item("user-2", 2),
+            item("user-1", 3),
+            item("user-1", 4),
+        ];
+        let seqs: Vec<Vec<u64>> = group_by_user(items)
+            .iter()
+            .map(|g| g.iter().map(|i| i.seq).collect())
+            .collect();
+        assert_eq!(seqs, vec![vec![1, 3, 4], vec![2]]);
+        assert!(group_by_user(Vec::new()).is_empty());
+    }
+
+    #[test]
+    fn a_batch_takes_as_long_as_its_slowest_group() {
+        let start = Instant::now();
+        let at = |ms: u64| start + Duration::from_millis(ms);
+        let (busy, wait) = batch_timing(start, &[at(500), at(2000), at(1000)]);
+        assert_eq!((busy.round(), wait.round()), (2000.0, 1500.0));
+        assert_eq!(batch_timing(start, &[at(400)]).1, 0.0); // one group: nobody waits
+    }
+
+    #[test]
+    fn a_batch_without_groups_takes_no_time_and_does_not_panic() {
+        assert_eq!(batch_timing(Instant::now(), &[]), (0.0, 0.0)); // all messages belonged to another run
+    }
+
+    #[test]
+    fn a_user_handled_in_order_has_no_violation() {
+        let order = OrderCheck::default();
+        assert!([1, 2, 3, 3, 10]
+            .iter()
+            .all(|&seq| order.check(&item("user-1", seq)))); // a repeat is not out of order
+        assert_eq!(order.violations(), 0);
+    }
+
+    #[test]
+    fn a_message_handled_after_a_later_one_is_a_violation() {
+        let order = OrderCheck::default();
+        order.check(&item("user-1", 5));
+        assert!(!order.check(&item("user-1", 4)));
+        assert_eq!(order.violations(), 1);
+    }
+
+    #[test]
+    fn users_and_senders_are_checked_independently() {
+        let order = OrderCheck::default();
+        order.check(&item("user-1", 9));
+        let other_sender = Item {
+            key: b"user-1".to_vec(),
+            producer: 1,
+            seq: 1,
+        };
+        assert!(order.check(&item("user-2", 1)) && order.check(&other_sender));
+        assert_eq!(order.violations(), 0);
     }
     #[test]
     fn parses_edges() {
@@ -191,7 +326,17 @@ mod tests {
 
     #[test]
     fn bucket_boundaries() {
-        for (latency, want) in [(0.0, 0), (0.5, 0), (0.51, 1), (1.0, 1), (4.9, 3), (5.0, 3), (10.0, 4), (10.1, 5), (99999.0, 5)] {
+        for (latency, want) in [
+            (0.0, 0),
+            (0.5, 0),
+            (0.51, 1),
+            (1.0, 1),
+            (4.9, 3),
+            (5.0, 3),
+            (10.0, 4),
+            (10.1, 5),
+            (99999.0, 5),
+        ] {
             assert_eq!(bucket(latency, &EDGES), want, "latency {latency}");
         }
     }
@@ -200,22 +345,39 @@ mod tests {
     fn header_round_trip() {
         let mut message = build_header("abc12345", 2, 3, 42, 1794147580123.456);
         message.extend(vec![b'x'; 100]);
-        assert_eq!(parse_header(&message, "abc12345"), Some(Header { producer: 2, partition: 3, seq: 42, sent_ms: 1794147580123.456 }));
+        assert_eq!(
+            parse_header(&message, "abc12345"),
+            Some(Header {
+                producer: 2,
+                partition: 3,
+                seq: 42,
+                sent_ms: 1794147580123.456
+            })
+        );
     }
 
     #[test]
     fn header_of_another_run_is_ignored() {
-        assert_eq!(parse_header(&build_header("other", 0, 0, 0, 1.0), "abc12345"), None);
+        assert_eq!(
+            parse_header(&build_header("other", 0, 0, 0, 1.0), "abc12345"),
+            None
+        );
     }
 
     #[test]
     fn malformed_headers_are_rejected() {
-        for garbage in ["", "no separators", "a|b|c", "run|0|x|y|z|pad", "run|0|1|2|notanumber|pad"] {
+        for garbage in [
+            "",
+            "no separators",
+            "a|b|c",
+            "run|0|x|y|z|pad",
+            "run|0|1|2|notanumber|pad",
+        ] {
             assert_eq!(parse_header(garbage.as_bytes(), "run"), None, "{garbage}");
         }
     }
 
-#[test]
+    #[test]
     fn numbers_one_after_another_make_one_range() {
         let mut seen = SeqRanges::default();
         assert!((0..5).all(|s| seen.observe(0, 0, s)));
@@ -275,9 +437,18 @@ mod tests {
 
     #[test]
     fn pacing() {
-        assert_eq!(pacing_delay(1_000_000, 0.0, Duration::from_millis(1)), Duration::ZERO);
-        assert_eq!(pacing_delay(1000, 1000.0, Duration::from_millis(250)), Duration::from_millis(750));
-        assert_eq!(pacing_delay(1000, 1000.0, Duration::from_secs(2)), Duration::ZERO);
+        assert_eq!(
+            pacing_delay(1_000_000, 0.0, Duration::from_millis(1)),
+            Duration::ZERO
+        );
+        assert_eq!(
+            pacing_delay(1000, 1000.0, Duration::from_millis(250)),
+            Duration::from_millis(750)
+        );
+        assert_eq!(
+            pacing_delay(1000, 1000.0, Duration::from_secs(2)),
+            Duration::ZERO
+        );
         assert_eq!(pacing_chunk(0.0, 1000), 1000);
         assert_eq!(pacing_chunk(10_000.0, 1000), 100);
         assert_eq!(pacing_chunk(5_000_000.0, 1000), 1000);

@@ -3,6 +3,7 @@ package main
 // What a consumer counts about the messages it reads, and the report it sends once per second.
 
 import (
+	"math"
 	"sort"
 	"strconv"
 	"sync"
@@ -20,7 +21,10 @@ type consumerStats struct {
 	firstAt    float64 // seconds since the epoch
 	lastAt     float64
 	maxLatency float64
-	seen       *seqRanges // which message numbers arrived: the lab counts lost and repeated ones from it
+	seen       *seqRanges  // which message numbers arrived: the lab counts lost and repeated ones from it
+	order      *orderCheck // the messages of a user must be handled in the order they were sent
+	batchBusy  float64     // milliseconds spent handling batches
+	batchWait  float64     // of which some groups were done and the others still worked
 }
 
 func newConsumerStats() *consumerStats {
@@ -29,6 +33,7 @@ func newConsumerStats() *consumerStats {
 		offsets:  map[string]int64{},
 		assigned: map[int32]bool{},
 		seen:     newSeqRanges(),
+		order:    newOrderCheck(),
 	}
 }
 
@@ -46,6 +51,14 @@ func (s *consumerStats) revoke(partitions []int32) {
 	for _, p := range partitions {
 		delete(s.assigned, p)
 	}
+}
+
+// addBatch remembers how long a batch took and how much of it was spent waiting for the slowest group.
+func (s *consumerStats) addBatch(busyMs, waitMs float64) {
+	s.mu.Lock()
+	s.batchBusy += busyMs
+	s.batchWait += waitMs
+	s.mu.Unlock()
 }
 
 func (s *consumerStats) countError() {
@@ -87,7 +100,8 @@ func (s *consumerStats) report(final bool) {
 	payload := map[string]interface{}{
 		"runId": runID, "worker": workerID(), "role": "consumer", "lang": "go", "ts": float64(time.Now().UnixNano()) / 1e9,
 		"ready": len(parts) > 0, "assigned": parts, "received": s.received, "duplicates": s.seen.repeats,
-		"ranges": s.seen.report(), "overflow": s.seen.overflow, "errors": s.errors, "offsets": s.offsets, "hist": histCopy, "final": final,
+		"ranges": s.seen.report(), "overflow": s.seen.overflow,
+		"orderViolations": s.order.violations, "batchBusyMs": math.Round(s.batchBusy*10) / 10, "batchWaitMs": math.Round(s.batchWait*10) / 10, "errors": s.errors, "offsets": s.offsets, "hist": histCopy, "final": final,
 		"firstAt": nilIfZero(s.firstAt), "lastAt": nilIfZero(s.lastAt), "maxLatencyMs": s.maxLatency,
 	}
 	s.mu.Unlock()

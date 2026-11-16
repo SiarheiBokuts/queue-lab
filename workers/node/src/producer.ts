@@ -17,7 +17,14 @@ export async function run(): Promise<void> {
   const rate = parseFloat(settings.required('RATE')); // this producer's target messages per second; 0 = as fast as possible
   const randomPayload = settings.required('PAYLOAD') === 'random'; // incompressible data instead of a repeated filler
   const users = parseInt(settings.required('USERS'), 10); // how many different users (message keys) the messages are spread over
-  const state = { sent: 0, delivered: 0, errors: 0, done: false, started: null as number | null, finished: null as number | null };
+  const state = {
+    sent: 0,
+    delivered: 0,
+    errors: 0,
+    done: false,
+    started: null as number | null,
+    finished: null as number | null,
+  };
 
   // Batching, acks, queue size and compression come from the backend (the same values for every language).
   // The client accepts librdkafka properties next to its own `kafkaJS` block; its typings do not list them.
@@ -26,9 +33,17 @@ export async function run(): Promise<void> {
 
   const report = (): Promise<void> =>
     reporting.post({
-      runId: settings.RUN, worker: settings.WID, role: 'producer', lang: 'node', ts: Date.now() / 1000,
-      sent: state.sent, delivered: state.delivered, errors: state.errors, done: state.done,
-      started: state.started, finished: state.finished,
+      runId: settings.RUN,
+      worker: settings.WID,
+      role: 'producer',
+      lang: 'node',
+      ts: Date.now() / 1000,
+      sent: state.sent,
+      delivered: state.delivered,
+      errors: state.errors,
+      done: state.done,
+      started: state.started,
+      finished: state.finished,
     });
   const stopReporter = reporting.startReporter(report);
   process.on('SIGTERM', () => {
@@ -38,7 +53,14 @@ export async function run(): Promise<void> {
   // @producer-start
   // Messages go out in batches: building and sending them one by one would cost too much in Node.js.
   // Each round: build a batch, send it, keep at most MAX_IN_FLIGHT unconfirmed batches, and wait if we are too fast.
-  const factory = new MessageFactory({ run: settings.RUN, producerIndex: index, partitions: nparts, size, users, randomPayload });
+  const factory = new MessageFactory({
+    run: settings.RUN,
+    producerIndex: index,
+    partitions: nparts,
+    size,
+    users,
+    randomPayload,
+  });
   const started = Date.now() / 1000;
   state.started = started;
   const chunk = pacingChunk(rate, MAX_CHUNK); // batch size: about 10 ms of the target rate, at most MAX_CHUNK
