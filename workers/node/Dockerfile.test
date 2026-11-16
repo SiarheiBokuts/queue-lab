@@ -1,5 +1,5 @@
 # Checks of the Node.js worker: style (Biome), types and unit tests. docker build -f workers/node/Dockerfile.test workers/node
-FROM node:24-slim
+FROM node:26-slim
 WORKDIR /app
 COPY package.json package-lock.json tsconfig.json tsconfig.build.json biome.json ./
 RUN npm ci --no-audit --no-fund
