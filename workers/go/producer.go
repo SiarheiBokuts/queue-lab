@@ -144,27 +144,46 @@ func newKafkaProducer(counters *producerCounters) *kafka.Producer {
 
 // ---- 4. message --------------------------------------------------------------------------------------------------
 
-// randomPool is the data random padding is cut from (empty when the padding is a repeated filler).
-func randomPool(cfg producerSettings) []byte {
-	if !cfg.randomPayload {
-		return nil
-	}
-	pool := make([]byte, poolBytes+cfg.size)
-	_, _ = rand.Read(pool)
-	return pool
+// messageMaker builds message number i of this producer: which partition, which user, and the bytes to send.
+// It owns what has to be remembered between messages: the sequence counter of every partition.
+type messageMaker struct {
+	cfg  producerSettings
+	seqs []int64 // each partition has its own sequence counter for this producer, starting at 0
+	pool []byte  // the data random padding is cut from (empty when the padding is a repeated filler)
 }
 
-// buildMessage is the header (who sent it, where, which number, when) padded up to the requested message size.
-func buildMessage(head []byte, i int, cfg producerSettings, pool []byte) []byte {
-	fill := cfg.size - len(head)
+func newMessageMaker(cfg producerSettings) *messageMaker {
+	maker := &messageMaker{cfg: cfg, seqs: make([]int64, cfg.partitions)}
+	if cfg.randomPayload {
+		maker.pool = make([]byte, poolBytes+cfg.size)
+		_, _ = rand.Read(maker.pool)
+	}
+	return maker
+}
+
+func (m *messageMaker) make(i int) *kafka.Message {
+	part := (i + m.cfg.index) % m.cfg.partitions // round robin; producers start on different partitions so the load stays even
+	head := buildHeader(runID, m.cfg.index, part, m.seqs[part], nowMs())
+	m.seqs[part]++
+	topicName := topic
+	return &kafka.Message{
+		TopicPartition: kafka.TopicPartition{Topic: &topicName, Partition: int32(part)},
+		Key:            userKey(part, i, m.cfg.partitions, m.cfg.users),
+		Value:          m.pad(head, i),
+	}
+}
+
+// pad is the header (who sent it, where, which number, when) padded up to the requested message size.
+func (m *messageMaker) pad(head []byte, i int) []byte {
+	fill := m.cfg.size - len(head)
 	if fill < 0 {
 		fill = 0
 	}
 	payload := make([]byte, 0, len(head)+fill)
 	payload = append(payload, head...)
-	if cfg.randomPayload {
+	if m.cfg.randomPayload {
 		offset := (i * 997) % poolBytes
-		return append(payload, pool[offset:offset+fill]...)
+		return append(payload, m.pool[offset:offset+fill]...)
 	}
 	for k := 0; k < fill; k++ {
 		payload = append(payload, 'x')
@@ -193,24 +212,15 @@ func runProducer() {
 	cfg := readProducerSettings()
 	counters := &producerCounters{}
 	producer := newKafkaProducer(counters)
-	pool := randomPool(cfg)
+	maker := newMessageMaker(cfg)
 	startReporter(counters.report, counters.running)
 
 	// @producer-start
-	seqs := make([]int64, cfg.partitions) // each partition has its own sequence counter for this producer, starting at 0
 	begin := time.Now()
 	counters.start()
 	checkEvery := pacingChunk(cfg.rate, 500) // how often to look at the clock
-	topicName := topic
 	for i := 0; i < cfg.total && !stopping.Load(); i++ {
-		part := (i + cfg.index) % cfg.partitions // round robin; producers start on different partitions so the load stays even
-		head := buildHeader(runID, cfg.index, part, seqs[part], nowMs())
-		seqs[part]++
-		produce(producer, &kafka.Message{
-			TopicPartition: kafka.TopicPartition{Topic: &topicName, Partition: int32(part)},
-			Key:            userKey(part, i, cfg.partitions, cfg.users),
-			Value:          buildMessage(head, i, cfg, pool),
-		})
+		produce(producer, maker.make(i)) // message number i: its partition, its user and its bytes
 		counters.setSent(int64(i + 1))
 		if (i+1)%checkEvery == 0 {
 			if wait := pacingDelay(i+1, cfg.rate, time.Since(begin)); wait > 0 { // ahead of the target rate? then wait

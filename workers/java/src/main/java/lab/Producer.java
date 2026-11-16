@@ -137,40 +137,62 @@ final class Producer {
 
   // ---- 4. message --------------------------------------------------------------------------
 
-  /** The data random padding is cut from (empty when the padding is a repeated filler). */
-  static byte[] randomPool(ProducerSettings cfg) {
-    if (!cfg.randomPayload()) {
-      return new byte[0];
-    }
-    byte[] pool = new byte[POOL_BYTES + cfg.size()];
-    new Random().nextBytes(pool);
-    return pool;
-  }
+  /** One message, ready to send: the partition it goes to, its user key and its bytes. */
+  record Message(int partition, byte[] key, byte[] value) {}
 
   /**
-   * The header (who sent it, where, which number, when) padded up to the requested message size.
+   * Builds message number i of this producer: which partition, which user, and the bytes to send.
+   * It owns what has to be remembered between messages: the sequence counter of every partition.
    */
-  static byte[] buildMessage(byte[] header, long i, ProducerSettings cfg, byte[] pool) {
-    int fill = Math.max(0, cfg.size() - header.length);
-    byte[] payload = new byte[header.length + fill];
-    System.arraycopy(header, 0, payload, 0, header.length);
-    if (cfg.randomPayload()) {
-      int offset = (int) ((i * 997) % POOL_BYTES);
-      System.arraycopy(pool, offset, payload, header.length, fill);
-    } else {
-      Arrays.fill(payload, header.length, payload.length, (byte) 'x');
+  static final class MessageMaker {
+    private final ProducerSettings cfg;
+    // Each partition has its own sequence counter for this producer, starting at 0.
+    private final long[] seqs;
+    // The data random padding is cut from (empty when the padding is a repeated filler).
+    private final byte[] pool;
+
+    MessageMaker(ProducerSettings cfg) {
+      this.cfg = cfg;
+      this.seqs = new long[cfg.partitions()];
+      if (cfg.randomPayload()) {
+        this.pool = new byte[POOL_BYTES + cfg.size()];
+        new Random().nextBytes(pool);
+      } else {
+        this.pool = new byte[0];
+      }
     }
-    return payload;
+
+    Message make(long i) {
+      // Round robin; producers start on different partitions so the load stays even.
+      int part = (int) ((i + cfg.index()) % cfg.partitions());
+      byte[] header = Lib.buildHeader(Settings.RUN, cfg.index(), part, seqs[part], Lib.nowMs());
+      seqs[part]++;
+      byte[] key = Lib.userKey(part, i, cfg.partitions(), cfg.users());
+      return new Message(part, key, pad(header, i));
+    }
+
+    /**
+     * The header (who sent it, where, which number, when) padded up to the requested message size.
+     */
+    private byte[] pad(byte[] header, long i) {
+      int fill = Math.max(0, cfg.size() - header.length);
+      byte[] payload = new byte[header.length + fill];
+      System.arraycopy(header, 0, payload, 0, header.length);
+      if (cfg.randomPayload()) {
+        int offset = (int) ((i * 997) % POOL_BYTES);
+        System.arraycopy(pool, offset, payload, header.length, fill);
+      } else {
+        Arrays.fill(payload, header.length, payload.length, (byte) 'x');
+      }
+      return payload;
+    }
   }
 
   /** Hands a message to the client; the client blocks by itself while its local queue is full. */
-  static void send(
-      KafkaProducer<byte[], byte[]> producer,
-      int partition,
-      byte[] key,
-      byte[] value,
-      Callback onDelivery) {
-    producer.send(new ProducerRecord<>(Settings.TOPIC, partition, key, value), onDelivery);
+  static void send(KafkaProducer<byte[], byte[]> producer, Message message, Callback onDelivery) {
+    producer.send(
+        new ProducerRecord<>(Settings.TOPIC, message.partition(), message.key(), message.value()),
+        onDelivery);
   }
 
   // ---- 5. run ------------------------------------------------------------------------------
@@ -180,22 +202,16 @@ final class Producer {
     Counters counters = new Counters();
     KafkaProducer<byte[], byte[]> producer = newKafkaProducer(cfg);
     Callback onDelivery = deliveryCallback(counters);
-    byte[] pool = randomPool(cfg);
+    MessageMaker maker = new MessageMaker(cfg);
     Reporting.startReporter(counters::report, counters::running);
 
     // @producer-start
-    // Each partition has its own sequence counter for this producer, starting at 0.
-    long[] seqs = new long[cfg.partitions()];
     long begin = System.nanoTime();
     counters.start();
     int checkEvery = Lib.pacingChunk(cfg.rate(), 500); // how often to look at the clock
     for (long i = 0; i < cfg.total() && !Reporting.stopping; i++) {
-      // Round robin; producers start on different partitions so the load stays even.
-      int part = (int) ((i + cfg.index()) % cfg.partitions());
-      byte[] header = Lib.buildHeader(Settings.RUN, cfg.index(), part, seqs[part], Lib.nowMs());
-      seqs[part]++;
-      byte[] key = Lib.userKey(part, i, cfg.partitions(), cfg.users());
-      send(producer, part, key, buildMessage(header, i, cfg, pool), onDelivery);
+      var message = maker.make(i); // message number i: its partition, its user and its bytes
+      send(producer, message, onDelivery);
       counters.setSent(i + 1);
       if ((i + 1) % checkEvery == 0) {
         // Ahead of the target rate? Then wait.

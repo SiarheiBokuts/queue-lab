@@ -32,6 +32,7 @@ fn env_int(name: &str) -> usize {
 
 // ---- 1. settings -------------------------------------------------------------------------------------------------
 
+#[derive(Clone)]
 struct ProducerSettings {
     total: usize,         // this producer's share of the messages
     size: usize,          // bytes per message
@@ -145,35 +146,72 @@ fn new_kafka_producer(counters: Arc<Counters>) -> BaseProducer<DeliveryReports> 
 
 // ---- 4. message --------------------------------------------------------------------------------------------------
 
-/// The data random padding is cut from (empty when the padding is a repeated filler).
-fn random_pool(cfg: &ProducerSettings) -> Vec<u8> {
-    if !cfg.random_payload {
-        return Vec::new();
-    }
-    let mut pool = vec![0u8; POOL_BYTES + cfg.size];
-    getrandom::fill(&mut pool).expect("random bytes");
-    pool
+/// One message, ready to hand to the client.
+struct Message {
+    part: usize,
+    key: String,
+    payload: Vec<u8>,
 }
 
-/// The header (who sent it, where, which number, when) padded up to the requested message size.
-fn build_message(header: Vec<u8>, i: usize, cfg: &ProducerSettings, pool: &[u8]) -> Vec<u8> {
-    let mut payload = header;
-    let fill = cfg.size.saturating_sub(payload.len());
-    if cfg.random_payload {
-        let offset = (i * 997) % POOL_BYTES;
-        payload.extend_from_slice(&pool[offset..offset + fill]);
-    } else {
-        payload.resize(payload.len() + fill, b'x');
+/// Builds message number i of this producer: which partition, which user, and the bytes to send.
+/// It owns what has to be remembered between messages: the sequence counter of every partition.
+struct MessageMaker {
+    cfg: ProducerSettings,
+    seqs: Vec<u64>, // each partition has its own sequence counter for this producer, starting at 0
+    pool: Vec<u8>, // the data random padding is cut from (empty when the padding is a repeated filler)
+}
+
+impl MessageMaker {
+    fn new(cfg: &ProducerSettings) -> MessageMaker {
+        let mut pool = Vec::new();
+        if cfg.random_payload {
+            pool = vec![0u8; POOL_BYTES + cfg.size];
+            getrandom::fill(&mut pool).expect("random bytes");
+        }
+        MessageMaker {
+            cfg: cfg.clone(),
+            seqs: vec![0; cfg.partitions],
+            pool,
+        }
     }
-    payload
+
+    fn make(&mut self, i: usize) -> Message {
+        let part = (i + self.cfg.index) % self.cfg.partitions; // round robin; producers start on different partitions so the load stays even
+        let header = build_header(
+            &get().run_id,
+            self.cfg.index,
+            part,
+            self.seqs[part],
+            now_ms(),
+        );
+        self.seqs[part] += 1;
+        Message {
+            part,
+            key: user_key(part, i, self.cfg.partitions, self.cfg.users), // the user this message belongs to
+            payload: self.pad(header, i),
+        }
+    }
+
+    /// The header (who sent it, where, which number, when) padded up to the requested message size.
+    fn pad(&self, header: Vec<u8>, i: usize) -> Vec<u8> {
+        let mut payload = header;
+        let fill = self.cfg.size.saturating_sub(payload.len());
+        if self.cfg.random_payload {
+            let offset = (i * 997) % POOL_BYTES;
+            payload.extend_from_slice(&self.pool[offset..offset + fill]);
+        } else {
+            payload.resize(payload.len() + fill, b'x');
+        }
+        payload
+    }
 }
 
 /// Hands a message to the client; when the local queue is full it waits for the client to drain it.
-fn produce(producer: &BaseProducer<DeliveryReports>, part: usize, key: &str, payload: &[u8]) {
+fn produce(producer: &BaseProducer<DeliveryReports>, message: &Message) {
     let mut record = BaseRecord::<str, [u8]>::to(&get().topic)
-        .partition(part as i32)
-        .key(key)
-        .payload(payload);
+        .partition(message.part as i32)
+        .key(message.key.as_str())
+        .payload(message.payload.as_slice());
     loop {
         match producer.send(record) {
             Ok(()) => return,
@@ -192,7 +230,7 @@ pub fn run() {
     let cfg = read_settings();
     let counters = Arc::new(Counters::default());
     let producer = new_kafka_producer(counters.clone());
-    let pool = random_pool(&cfg);
+    let mut maker = MessageMaker::new(&cfg);
     start_reporter(
         {
             let counters = counters.clone();
@@ -205,7 +243,6 @@ pub fn run() {
     );
 
     // @producer-start
-    let mut seqs = vec![0u64; cfg.partitions]; // each partition has its own sequence counter for this producer, starting at 0
     let begin = Instant::now();
     counters.start();
     let check_every = pacing_chunk(cfg.rate, 500); // how often to look at the clock and serve delivery callbacks
@@ -213,12 +250,8 @@ pub fn run() {
         if STOPPING.load(Ordering::Relaxed) {
             break;
         }
-        let part = (i + cfg.index) % cfg.partitions; // round robin; producers start on different partitions so the load stays even
-        let header = build_header(&get().run_id, cfg.index, part, seqs[part], now_ms());
-        seqs[part] += 1;
-        let key = user_key(part, i, cfg.partitions, cfg.users); // the user this message belongs to
-        let payload = build_message(header, i, &cfg, &pool);
-        produce(&producer, part, &key, &payload);
+        let message = maker.make(i); // message number i: its partition, its user and its bytes
+        produce(&producer, &message);
         counters.set_sent(i + 1);
         if (i + 1) % check_every == 0 {
             producer.poll(Duration::ZERO); // serve delivery callbacks regularly

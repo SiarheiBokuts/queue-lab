@@ -115,27 +115,46 @@ def new_kafka_producer(counters: Counters) -> Producer:
 # ---- 4. message --------------------------------------------------------------------------------------------------
 
 
-def random_pool(cfg: ProducerSettings) -> bytes:
-    """The data random padding is cut from (empty when the padding is a repeated filler)."""
-    if not cfg.random_payload:
-        return b""
-    return os.urandom(POOL_BYTES + cfg.size)
+@dataclass(frozen=True)
+class Message:
+    partition: int  # the partition this message goes to
+    key: bytes  # the user the message belongs to
+    value: bytes  # the bytes to send: header padded up to the message size
 
 
-def build_message(header: bytes, i: int, cfg: ProducerSettings, pool: bytes) -> bytes:
-    """The header (who sent it, where, which number, when) padded up to the requested message size."""
-    fill = max(0, cfg.size - len(header))
-    if cfg.random_payload:
-        offset = (i * 997) % POOL_BYTES
-        return header + pool[offset : offset + fill]
-    return header + b"x" * fill
+class MessageMaker:
+    """Builds message number i of this producer: which partition, which user, and the bytes to send.
+
+    It owns what has to be remembered between messages: the sequence counter of every partition.
+    """
+
+    def __init__(self, cfg: ProducerSettings) -> None:
+        self.cfg = cfg
+        self.seqs = [0] * cfg.partitions  # each partition has its own sequence counter for this producer, starting at 0
+        # The data random padding is cut from (empty when the padding is a repeated filler).
+        self.pool = os.urandom(POOL_BYTES + cfg.size) if cfg.random_payload else b""
+
+    def make(self, i: int) -> Message:
+        cfg = self.cfg
+        part = (i + cfg.index) % cfg.partitions  # round robin; producers start on different partitions, load stays even
+        header = build_header(settings.RUN, cfg.index, part, self.seqs[part], time.time() * 1000)
+        self.seqs[part] += 1
+        return Message(part, user_key(part, i, cfg.partitions, cfg.users), self._pad(header, i))
+
+    def _pad(self, header: bytes, i: int) -> bytes:
+        """The header (who sent it, where, which number, when) padded up to the requested message size."""
+        fill = max(0, self.cfg.size - len(header))
+        if self.cfg.random_payload:
+            offset = (i * 997) % POOL_BYTES
+            return header + self.pool[offset : offset + fill]
+        return header + b"x" * fill
 
 
-def produce(producer: Producer, key: bytes, value: bytes, partition: int) -> None:
+def produce(producer: Producer, message: Message) -> None:
     """Hand a message to the client; when the local queue is full, wait for the client to drain it."""
     while True:
         try:
-            producer.produce(settings.TOPIC, value, key=key, partition=partition)
+            producer.produce(settings.TOPIC, message.value, key=message.key, partition=message.partition)
             return
         except BufferError:
             producer.poll(0.05)
@@ -148,22 +167,18 @@ def run() -> None:
     cfg = read_settings()
     counters = Counters()
     producer = new_kafka_producer(counters)
-    pool = random_pool(cfg)
+    maker = MessageMaker(cfg)
     reporting.start_reporter(counters.report, keep_going=counters.running)
 
     # @producer-start
-    seqs = [0] * cfg.partitions  # each partition has its own sequence counter for this producer, starting at 0
     begin = time.time()
     counters.start()
     check_every = pacing_chunk(cfg.rate, 500)  # how often to look at the clock and serve delivery callbacks
     for i in range(cfg.total):
         if reporting.stop.is_set():
             break
-        part = (i + cfg.index) % cfg.partitions  # round robin; producers start on different partitions, load stays even
-        header = build_header(settings.RUN, cfg.index, part, seqs[part], time.time() * 1000)
-        seqs[part] += 1
-        key = user_key(part, i, cfg.partitions, cfg.users)
-        produce(producer, key, build_message(header, i, cfg, pool), part)
+        message = maker.make(i)  # message number i: its partition, its user and its bytes
+        produce(producer, message)
         counters.set_sent(i + 1)
         if (i + 1) % check_every == 0:
             producer.poll(0)  # serve delivery callbacks regularly
