@@ -80,6 +80,8 @@ def test_role_specific_variables_are_read_by_the_workers() -> None:
     for lang in config.LANGS:
         source = "\n".join(_sources(lang).values())
         for name in contract.CONSUMER_ONLY + contract.PRODUCER_ONLY:
+            if lang not in contract.READ_ONLY_BY.get(name, (lang,)):
+                continue
             assert name in source, f"{name} is not used by the {lang} worker"
 
 
@@ -90,7 +92,7 @@ def test_kafka_client_settings_are_sent_as_the_same_json_to_every_language() -> 
 
 # Settings that tune the Kafka client. They may be written only in config.py, never in a worker: as a quoted librdkafka
 # property name ("linger.ms") or as a KafkaJS-style option key (acks:). Prose in comments is allowed.
-TUNING_PROPERTIES = ["acks", "linger.ms", "batch.num.messages", "queue.buffering.max.messages", "compression.type",
+TUNING_PROPERTIES = ["acks", "linger.ms", "batch.num.messages", "queue.buffering.max.messages", "queue.buffering.max.kbytes", "compression.type",
                      "session.timeout.ms", "fetch.wait.max.ms", "auto.offset.reset", "enable.auto.commit"]  # fmt: skip
 TUNING_OPTIONS = ["acks", "fromBeginning", "autoCommit", "sessionTimeout", "maxWaitTimeInMs", "compression"]
 
@@ -211,3 +213,12 @@ def test_every_consumer_has_the_same_batch_units() -> None:
             assert any(re.search(rf"\b{name}\b", source) for name in names), f"the {lang} consumer has no {unit}"
         assert "CONCURRENCY" in source or "concurrency" in source, f"the {lang} consumer ignores the batch size"
         assert "@scenario-start" in source and "@scenario-end" in source, f"the {lang} consumer lost its scenario markers"
+
+
+def test_a_sender_may_hold_the_smaller_of_the_message_limit_and_the_byte_limit() -> None:
+    assert contract.max_unconfirmed(256) == 131_072  # small messages: the 32 MB count
+    assert contract.max_unconfirmed(64) == 300_000  # tiny messages: the message limit counts
+    assert contract.max_unconfirmed(1_048_576) == 32  # 1 MB messages: only 32 may wait
+    assert contract.max_unconfirmed(2_147_483_647) == 1  # never below one
+    env = contract.producer_env(multi(1, 10, 0, message_size=1024), "r", "p")
+    assert env["MAX_UNCONFIRMED"] == "32768"

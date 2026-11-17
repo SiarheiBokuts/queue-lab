@@ -1,5 +1,5 @@
 // Takes the screenshots of the README from the running app: `npm run screenshots` (see CONTRIBUTING.md).
-// It runs a comparison of the five languages (a few minutes) and a run that is going, so the screens show real numbers.
+// It runs a comparison of the five languages with the echo scenario (a few minutes) and a run that is going, so the screens show real numbers.
 import { chromium } from '@playwright/test';
 
 const base = process.env.BASE_URL ?? 'http://queuelab-app:8000';
@@ -42,9 +42,9 @@ const setup = (queue, lang, messages, scenario) => ({
 await waitUntilIdle();
 await api('/api/settings', 'PUT', { welcomed: true });
 
-console.log('A comparison of the five languages (JSON scenario)...');
+console.log('A comparison of the five languages (echo scenario: only the speed of the client and the language)...');
 await api('/api/comparisons', 'POST', {
-  setup: setup('screens-compare', 'go', 300_000, { type: 'json', param: 5 }),
+  setup: setup('screens-compare', 'go', 1_000_000, { type: 'echo', param: 0 }),
   langs: ['python', 'node', 'java', 'go', 'rust'],
   cooldown_s: 3,
   producer_follows: false,

@@ -62,3 +62,75 @@ def test_the_share_never_vanishes_and_never_depends_on_the_language() -> None:
     assert budget.fair_cpu(1, 32)["cpus"] == 0.25
     assert budget.fair_cpu(8, 6) == budget.fair_cpu(8, 6)
     assert budget.fair_cpu(12, 3)["compute_threads"] == 3  # whole cores a worker may compute on
+
+
+def test_the_least_budget_holds_the_light_broker_and_two_containers() -> None:
+    assert budget.least_budget_mb() == config.BROKER_MEM_LIGHT_MB + 2 * config.LEAST_CONTAINER_MEM_MB == 1024
+    assert budget.least_budget_mb() <= config.BUDGET_PRESETS[0]["mb"]  # the first button is not below the least that works
+
+
+def test_the_first_budget_is_a_share_of_the_free_memory_rounded_down() -> None:
+    assert budget.first_start_budget(10_000) == 4864  # half of 10,000 is 5,000; down to a multiple of 256
+    assert budget.first_start_budget(1_000) == config.FIRST_START_BUDGET_MIN_MB  # never below the minimum
+    assert budget.first_start_budget(0) == config.FIRST_START_BUDGET_MIN_MB
+
+
+def test_limits_sent_to_the_screens_are_the_numbers_of_the_config() -> None:
+    limits = budget.limits()
+    assert limits["broker_mb"] == config.BROKER_MEM_MB
+    assert limits["broker_light_mb"] == config.BROKER_MEM_LIGHT_MB
+    assert limits["default_worker_mb"] == config.DEFAULT_WORKER_MEM_MB
+    assert limits["default_producer_mb"] == config.DEFAULT_PRODUCER_MEM_MB
+    assert limits["min_container_mb"] == config.MIN_CONTAINER_MEM_MB
+    assert limits["cpu_reserve"] == config.CPU_RESERVE
+    assert limits["cpu_max_per_container"] == config.CPU_MAX_PER_CONTAINER
+    assert limits["budget"]["least_mb"] == budget.least_budget_mb()
+    assert [p["mb"] for p in limits["budget"]["presets"]] == sorted(p["mb"] for p in config.BUDGET_PRESETS)
+
+
+def test_presets_are_valid_budgets_and_the_advised_one_is_a_preset() -> None:
+    mbs = [p["mb"] for p in config.BUDGET_PRESETS]
+    assert all(mb >= config.MIN_BUDGET_MB for mb in mbs)
+    assert config.RECOMMENDED_BUDGET_MB in mbs
+
+
+def test_nothing_below_the_smallest_working_size_can_be_chosen() -> None:
+    assert budget.least_budget_mb() == config.MIN_BUDGET_MB
+    assert budget.least_budget_mb() == config.FIRST_START_BUDGET_MIN_MB
+    assert all(p["mb"] >= config.MIN_BUDGET_MB for p in config.BUDGET_PRESETS)
+
+
+def test_a_big_budget_keeps_the_usual_form_defaults() -> None:
+    form = budget.form_defaults(4096, light=False)
+    assert form == {
+        "workers": config.DEFAULT_WORKERS,
+        "worker_mb": config.DEFAULT_WORKER_MEM_MB,
+        "producer_mb": config.DEFAULT_PRODUCER_MEM_MB,
+    }
+
+
+def test_a_smaller_budget_gets_fewer_workers_that_still_fit() -> None:
+    form = budget.form_defaults(2048, light=False)  # 2048 - 1024 for Kafka = 1024 for the sender and the workers
+    assert form["workers"] == 1
+    assert form["producer_mb"] + form["workers"] * form["worker_mb"] <= 2048 - config.BROKER_MEM_MB
+    light = budget.form_defaults(2048, light=True)  # the light broker leaves more room
+    assert light["workers"] > form["workers"]
+
+
+def test_the_least_budget_gets_one_worker_and_one_sender_that_fit_with_the_light_broker() -> None:
+    form = budget.form_defaults(config.LEAST_BUDGET_MB, light=True)
+    assert form["workers"] == 1
+    assert form["producer_mb"] + form["worker_mb"] <= config.LEAST_BUDGET_MB - config.BROKER_MEM_LIGHT_MB
+    assert min(form["producer_mb"], form["worker_mb"]) >= config.MIN_CONTAINER_MEM_MB
+
+
+def test_a_budget_the_broker_alone_fills_still_gives_a_valid_form() -> None:
+    form = budget.form_defaults(config.LEAST_BUDGET_MB, light=False)  # nothing fits: the form warns, it does not break
+    assert form["workers"] == 1
+    assert form["worker_mb"] >= config.MIN_CONTAINER_MEM_MB
+    assert form["producer_mb"] >= config.MIN_CONTAINER_MEM_MB
+
+
+def test_limits_carry_the_form_defaults_of_the_chosen_budget() -> None:
+    assert budget.limits(2048, True)["form"] == budget.form_defaults(2048, True)
+    assert budget.limits()["form"] == budget.form_defaults(config.DEFAULT_BUDGET_MB, False)

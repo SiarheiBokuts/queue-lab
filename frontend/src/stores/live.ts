@@ -18,8 +18,14 @@ export const useLive = defineStore('live', () => {
   const queues = ref<any[]>([])
   const runs = ref<any[]>([])
   const loaded = ref(false) // the first state has arrived from the backend
-  const settings = ref<any>({ budget_mb: 2048, light_mode: false, remove_on_stop: true, welcomed: true })
+  const settings = ref<any>({ budget_mb: 0, light_mode: false, remove_on_stop: true, welcomed: true })
   const host = ref<any>({ total_mb: 0, available_mb: 0 })
+  // Every memory and CPU number of the app (config.py), sent by the backend. Zeros and empty lists until the state arrives.
+  const limits = ref<any>({
+    budget: { min_mb: 0, default_mb: 0, least_mb: 0, recommended_mb: 0, presets: [] },
+    broker_mb: 0, broker_light_mb: 0, min_container_mb: 0, default_worker_mb: 0, default_producer_mb: 0,
+    safety_reserve_mb: 0, min_free_for_kafka_mb: 0, cpu_reserve: 0, cpu_max_per_container: 0,
+  })
   const projects = ref({ project: '', sandbox_project: '' })
 const version = ref('')
   const history = ref<any[]>([])
@@ -94,6 +100,7 @@ const version = ref('')
       queues.value = s.queues
       runs.value = s.runs
       host.value = s.host
+      limits.value = s.limits
       projects.value = { project: s.project, sandbox_project: s.sandbox_project }
       version.value = s.version ?? ''
       // The newest live snapshot (containers, budget, current run), so the page is complete before the first WebSocket message.
@@ -124,5 +131,5 @@ const version = ref('')
     setInterval(refresh, 5000)
   }
 
-  return { loaded, connected, dockerOk, dockerError, warnings, containers, budget, run, comparison, queues, runs, settings, host, projects, version, history, lagHistory, cHist, refresh, start }
+  return { loaded, connected, dockerOk, dockerError, warnings, containers, budget, run, comparison, queues, runs, settings, host, limits, projects, version, history, lagHistory, cHist, refresh, start }
 })

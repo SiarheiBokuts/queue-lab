@@ -49,7 +49,7 @@ class RunManager:
 
     # ---------- settings helpers ----------
     def budget_mb(self) -> int:
-        return int(self.store.get_setting("budget_mb", 2048))
+        return int(self.store.get_setting("budget_mb", config.DEFAULT_BUDGET_MB))
 
     def light(self) -> bool:
         return bool(self.store.get_setting("light_mode", False))

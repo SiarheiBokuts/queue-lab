@@ -2,6 +2,8 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
+from . import config
+
 # These are not limits of the lab: they are the largest numbers the clients and the JVM can read (a 32-bit integer, the
 # safe integer of JavaScript, the largest batch the Python Kafka client accepts). Above them a worker would crash.
 INT32 = 2_147_483_647
@@ -15,8 +17,8 @@ class WorkersSpec(BaseModel):
     """Consumer group: language, how many containers and the memory limit of each."""
 
     lang: Lang = "node"
-    count: int = Field(5, ge=1, le=INT32)
-    memory_mb: int = Field(400, ge=128, le=INT32)
+    count: int = Field(config.DEFAULT_WORKERS, ge=1, le=INT32)
+    memory_mb: int = Field(config.DEFAULT_WORKER_MEM_MB, ge=config.MIN_CONTAINER_MEM_MB, le=INT32)
     # The batch size: a worker reads up to this many messages, groups them by user and handles the groups at the same
     # time. The messages of one user are always handled one after another (like payments of one customer); different
     # users run side by side. 1 = one message at a time.
@@ -26,7 +28,7 @@ class ProducerSpec(BaseModel):
     """The producer container."""
 
     lang: Lang = "python"
-    memory_mb: int = Field(384, ge=128, le=INT32)
+    memory_mb: int = Field(config.DEFAULT_PRODUCER_MEM_MB, ge=config.MIN_CONTAINER_MEM_MB, le=INT32)
     count: int = Field(1, ge=1, le=INT32)  # several producers share the load, for a rate one process cannot reach
 
 
@@ -63,7 +65,7 @@ class SetupRequest(BaseModel):
 class SettingsUpdate(BaseModel):
     """Partial update of the settings."""
 
-    budget_mb: int | None = Field(None, ge=512, le=INT32)
+    budget_mb: int | None = Field(None, ge=config.MIN_BUDGET_MB, le=INT32)
     light_mode: bool | None = None
     remove_on_stop: bool | None = None
     welcomed: bool | None = None  # the first-visit page has been seen

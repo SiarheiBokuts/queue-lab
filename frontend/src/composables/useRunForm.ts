@@ -14,12 +14,12 @@ import { LANGS, langName } from '../langs'
 import { useLive } from '../stores/live'
 
 /** The whole run form. Its shape is exactly what POST /api/setups expects. */
-function defaultForm() {
+function defaultForm(form: { workers: number; worker_mb: number; producer_mb: number }) {
   return {
     queue: 'lab-queue',
     partitions: 5,
-    workers: { lang: 'node', count: 5, memory_mb: 400, concurrency: 100 },
-    producer: { lang: 'python', memory_mb: 384, count: 1 },
+    workers: { lang: 'node', count: form.workers, memory_mb: form.worker_mb, concurrency: 100 },
+    producer: { lang: 'python', memory_mb: form.producer_mb, count: 1 },
     messages: 100000,
     message_size: 256,
     rate: 0,
@@ -36,7 +36,7 @@ function createRunForm() {
   const live = useLive()
   const router = useRouter()
   const route = useRoute()
-  const form = reactive(defaultForm())
+  const form = reactive(defaultForm(live.limits.form)) // counted by the backend from the chosen budget (budget.form_defaults)
 
   // ---- compare mode: the same test once per selected language, one after the other, then compared
   const compare = ref(false)
@@ -90,8 +90,8 @@ function createRunForm() {
   const preset = (messages: number, scenario: { type: string; param: number }, more: Record<string, unknown> = {}) => () => {
     Object.assign(form, {
       partitions: 5, messages, rate: 0, message_size: 256, compression: 'none', payload: 'compressible', users: 1000, scenario,
-      workers: { ...form.workers, count: 5, memory_mb: 400, concurrency: 100 },
-      producer: { ...form.producer, count: 1, memory_mb: 384 },
+      workers: { ...form.workers, count: 5, memory_mb: live.limits.default_worker_mb, concurrency: 100 },
+      producer: { ...form.producer, count: 1, memory_mb: live.limits.default_producer_mb },
       ...more,
     })
   }
@@ -100,7 +100,7 @@ function createRunForm() {
     { name: 'Slow service (waiting)', note: 'Each message waits 20 ms, like a database call. 5 workers with a batch of 100 can handle about 25,000 messages per second.', apply: preset(200_000, { type: 'delay', param: 20 }) },
     { name: 'Work with JSON', note: 'Each message is parsed as JSON and written back 5 times, like a real service does. The CPU is the limit.', apply: preset(200_000, { type: 'json', param: 5 }) },
     { name: 'Few users', note: 'Only 10 users: a user is handled one message at a time, so at most 2 messages per worker run together and the waiting service cannot be used well.', apply: preset(20_000, { type: 'delay', param: 20 }, { users: 10 }) },
-    { name: 'Hard sustained load', note: '20,000 messages per second for one minute from 2 senders, 10 partitions, 5 workers.', apply: preset(1_200_000, { type: 'echo', param: 0 }, { partitions: 10, rate: 20000, producer: { ...form.producer, count: 2, memory_mb: 384 } }) },
+    { name: 'Hard sustained load', note: '20,000 messages per second for one minute from 2 senders, 10 partitions, 5 workers.', apply: preset(1_200_000, { type: 'echo', param: 0 }, { partitions: 10, rate: 20000, producer: { ...form.producer, count: 2, memory_mb: live.limits.default_producer_mb } }) },
   ]
   // ---- derived values for the page
   const duration = computed({

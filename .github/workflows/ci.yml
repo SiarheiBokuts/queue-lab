@@ -106,7 +106,7 @@ jobs:
         with:
           persist-credentials: false
       - name: Frontend (npm audit)
-        run: docker run --rm -v "$PWD/frontend:/app" -w /app node:26-slim npm audit --omit=dev --audit-level=high
+        run: docker run --rm -v "$PWD/frontend:/app" -v "$PWD/.github/scripts:/scripts:ro" -w /app node:26-slim node /scripts/npm-audit.mjs
       - name: Node.js worker (npm audit)
         run: docker run --rm -v "$PWD/workers/node:/app" -w /app node:24-slim npm audit --omit=dev --audit-level=high
       - name: Backend (pip-audit)

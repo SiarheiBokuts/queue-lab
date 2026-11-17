@@ -72,10 +72,31 @@ BROKER_BOOTSTRAP = f"{BROKER_NAME}:9092"
 KAFKA_IMAGE = "apache/kafka:4.4.0"  # always a pinned tag: `latest` can lag behind
 KAFKA_NATIVE_IMAGE = "apache/kafka-native:4.4.0"  # lighter GraalVM build, intended for local testing
 BROKER_MEM_MB = 1024
-BROKER_MEM_LIGHT_MB = 512
-PRODUCER_MEM_MB = 256
+BROKER_MEM_LIGHT_MB = 512  # the native image of Kafka (Settings, "Light Kafka mode")
 
-# ---------------------------------------------------------------------------------------------- budgets
+# ----------------------------------------------------------------------------- memory: limits and defaults
+# Every memory number of the app lives here. The screens get them from /api/state (`limits`, see budget.limits), so
+# no page, form or text repeats one. They are advice and defaults, not walls: only the budget refuses a run.
+MIN_CONTAINER_MEM_MB = 128  # the least a sender or a worker may be given
+DEFAULT_WORKERS = 5  # workers a new form starts with, when the budget has room for them
+DEFAULT_WORKER_MEM_MB = 400
+DEFAULT_PRODUCER_MEM_MB = 384
+# One sender and one worker, each with this much, plus the light broker: the smallest setup. Checked with a real run of
+# all five languages (100,000 messages of 256 bytes, nothing lost); the peaks were 7 to 142 MB per container.
+LEAST_CONTAINER_MEM_MB = 256
+LEAST_BUDGET_MB = BROKER_MEM_LIGHT_MB + 2 * LEAST_CONTAINER_MEM_MB  # 1 GB: the size that was tried and worked
+MIN_BUDGET_MB = LEAST_BUDGET_MB  # the smallest budget a user can type: below it not even the smallest run fits
+DEFAULT_BUDGET_MB = 2048  # used until the first-visit page is answered
+FIRST_START_BUDGET_SHARE = 0.5  # the first budget is this share of the memory Docker has free ...
+FIRST_START_BUDGET_MIN_MB = LEAST_BUDGET_MB  # ... and at least this much
+BUDGET_STEP_MB = 256  # the first budget is rounded down to a multiple of this
+BUDGET_PRESETS = (  # the buttons of the first-visit page
+    {"name": "Minimal", "mb": 1024, "note": "Light Kafka mode, one sender, one worker. Works in every language."},
+    {"name": "Small", "mb": 2048, "note": "One queue, one sender and a few workers."},
+    {"name": "Recommended", "mb": 4096, "note": "Several workers, or two languages one after another."},
+    {"name": "Large", "mb": 8192, "note": "Many workers and a full comparison of all five languages."},
+)
+RECOMMENDED_BUDGET_MB = 4096  # marked "advised" on the first-visit page
 SAFETY_RESERVE_MB = 512  # memory always left free, on top of the user's budget
 MIN_FREE_FOR_KAFKA_MB = 1536  # below this the UI warns that Kafka may not fit
 
@@ -114,7 +135,13 @@ PRODUCER_CONF: dict[str, str | int | bool] = {
     "acks": "1",  # the partition leader confirms; there is a single broker anyway
     "linger.ms": 5,  # wait up to 5 ms to batch messages together: far higher throughput
     "batch.num.messages": 10000,  # at most this many messages in one batch
-    "queue.buffering.max.messages": 300000,  # how many messages the client holds before the producer has to wait
+    # How much a sender may hold that the broker has not confirmed yet. Both limits are sent to every language and the
+    # smaller one counts: with 256-byte messages it is the number of messages, with big ones it is the 32 MB. Without
+    # the byte limit a sender of 1 MB messages would need 300 GB, far over the memory of its container. Why only 32 MB:
+    # Node.js holds the data twice (in its own buffers and in the client's queue), so 32 MB there is about 64 MB, and
+    # with the 256 MB of a sender container a limit of 64 MB made it run out of memory with 900 KB messages.
+    "queue.buffering.max.messages": 300000,
+    "queue.buffering.max.kbytes": 32768,  # 32 MB
     "compression.type": "none",  # the padding compresses unrealistically well, so compression would hide real costs
 }
 BATCH_WAIT_MS = 50  # the longest a worker waits for a batch to fill, then it handles what has arrived

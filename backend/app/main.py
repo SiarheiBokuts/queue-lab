@@ -9,7 +9,7 @@ from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconn
 from fastapi.responses import FileResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import analysis, catalog, config, reports, security
+from . import analysis, budget, catalog, config, reports, security
 from .docker_service import DockerService
 from .hub import Hub
 from .kafka_service import KafkaService
@@ -47,7 +47,7 @@ def connect_docker() -> bool:
         docker_svc.ensure_network()
         if store.get_setting("budget_mb") is None:
             avail = docker_svc.meminfo()["available_mb"]
-            store.set_setting("budget_mb", max(1024, int(avail * 0.5 // 256 * 256)))
+            store.set_setting("budget_mb", budget.first_start_budget(avail))
     return ok
 
 
@@ -109,7 +109,7 @@ async def guard(request: Request, call_next):
 def settings_view() -> dict:
     """Settings with defaults applied."""
     return {
-        "budget_mb": int(store.get_setting("budget_mb", 2048)),
+        "budget_mb": int(store.get_setting("budget_mb", config.DEFAULT_BUDGET_MB)),
         "light_mode": bool(store.get_setting("light_mode", False)),
         "remove_on_stop": bool(store.get_setting("remove_on_stop", True)),
         "welcomed": bool(store.get_setting("welcomed", False)),
@@ -127,6 +127,7 @@ async def get_state():
         queues = []
     mem = await asyncio.to_thread(docker_svc.meminfo) if docker_svc.client else {"total_mb": 0, "available_mb": 0, "cpus": 0}
     warnings = []
+    current = settings_view()
     if docker_svc.client is None:
         warnings.append("Docker is not reachable. Start Docker Desktop and reload the page.")
     elif mem["available_mb"] < config.MIN_FREE_FOR_KAFKA_MB:
@@ -138,11 +139,12 @@ async def get_state():
         "docker_ok": docker_svc.client is not None,
         "docker_error": docker_svc.error,
         "warnings": warnings,
-        "settings": settings_view(),
+        "settings": current,
         "snapshot": state["snapshot"],
         "queues": queues,
         "runs": store.list_runs(),
         "host": mem,
+        "limits": budget.limits(current["budget_mb"], current["light_mode"]),
         "version": config.VERSION,
         "project": docker_svc.project,
         "sandbox_project": docker_svc.sandbox_project,

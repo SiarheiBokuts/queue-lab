@@ -1,9 +1,11 @@
 <script setup lang="ts">
 /** Step 4: the senders, the containers that put the messages into the queue. */
 import { useRunForm } from '../../composables/useRunForm'
+import { useLive } from '../../stores/live'
 import Hint from '../Hint.vue'
 import LangPicker from '../LangPicker.vue'
 
+const live = useLive()
 const { form, compare, producerFollows } = useRunForm()
 </script>
 
@@ -25,7 +27,7 @@ const { form, compare, producerFollows } = useRunForm()
       </label>
       <label class="field"
         >Memory each (MB)
-        <input class="input" type="number" min="128" step="64" v-model.number="form.producer.memory_mb" />
+        <input class="input" type="number" :min="live.limits.min_container_mb" step="64" v-model.number="form.producer.memory_mb" />
       </label>
     </div>
   </div>
