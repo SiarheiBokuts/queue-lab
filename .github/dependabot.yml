@@ -2,14 +2,29 @@ version: 2
 updates:
   - { package-ecosystem: pip, directory: /backend, schedule: { interval: weekly } }
   - { package-ecosystem: npm, directory: /frontend, schedule: { interval: weekly } }
-  - { package-ecosystem: npm, directory: /workers/node, schedule: { interval: weekly } }
   - { package-ecosystem: gomod, directory: /workers/go, schedule: { interval: weekly } }
   - { package-ecosystem: cargo, directory: /workers/rust, schedule: { interval: weekly } }
   - { package-ecosystem: maven, directory: /workers/java, schedule: { interval: weekly } }
   - { package-ecosystem: docker, directory: /, schedule: { interval: weekly } }
-  - { package-ecosystem: docker, directory: /workers/python, schedule: { interval: weekly } }
-  - { package-ecosystem: docker, directory: /workers/node, schedule: { interval: weekly } }
   - { package-ecosystem: docker, directory: /workers/go, schedule: { interval: weekly } }
   - { package-ecosystem: docker, directory: /workers/rust, schedule: { interval: weekly } }
   - { package-ecosystem: docker, directory: /workers/java, schedule: { interval: weekly } }
   - { package-ecosystem: github-actions, directory: /, schedule: { interval: weekly } }
+
+  # The Node.js worker stays on Node.js 24 and the Python worker on Python 3.14: the Kafka client libraries have no
+  # prebuilt binary for Node.js 26 / Python 3.15 yet (see README, "Known limits"). Take these ignores out when they do.
+  - package-ecosystem: npm
+    directory: /workers/node
+    schedule: { interval: weekly }
+    ignore:
+      - { dependency-name: "@types/node", update-types: ["version-update:semver-major"] }
+  - package-ecosystem: docker
+    directory: /workers/node
+    schedule: { interval: weekly }
+    ignore:
+      - { dependency-name: node, update-types: ["version-update:semver-major"] }
+  - package-ecosystem: docker
+    directory: /workers/python
+    schedule: { interval: weekly }
+    ignore:
+      - { dependency-name: python, update-types: ["version-update:semver-major", "version-update:semver-minor"] }

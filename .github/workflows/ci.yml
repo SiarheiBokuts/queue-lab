@@ -106,11 +106,11 @@ jobs:
         with:
           persist-credentials: false
       - name: Frontend (npm audit)
-        run: docker run --rm -v "$PWD/frontend:/app" -w /app node:24-slim npm audit --omit=dev --audit-level=high
+        run: docker run --rm -v "$PWD/frontend:/app" -w /app node:26-slim npm audit --omit=dev --audit-level=high
       - name: Node.js worker (npm audit)
         run: docker run --rm -v "$PWD/workers/node:/app" -w /app node:24-slim npm audit --omit=dev --audit-level=high
       - name: Backend (pip-audit)
-        run: docker run --rm -v "$PWD/backend:/app" -w /app python:3.14-slim-trixie sh -c "pip install -q pip-audit && pip-audit -r requirements.txt"
+        run: docker run --rm -v "$PWD/backend:/app" -w /app python:3.15-slim-trixie sh -c "pip install -q pip-audit && pip-audit -r requirements.txt"
 
   dockerfiles:
     name: "Check the Dockerfiles for mistakes (hadolint)"
