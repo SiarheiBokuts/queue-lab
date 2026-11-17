@@ -123,6 +123,8 @@ class LibTest {
                 10000,
                 "queue.buffering.max.messages",
                 300000,
+                "queue.buffering.max.kbytes",
+                32768,
                 "acks",
                 "1",
                 "enable.auto.commit",
@@ -134,9 +136,17 @@ class LibTest {
         KafkaConf.translateOnly(Map.of("fetch.message.max.bytes", 1048576), 256)
             .get("max.partition.fetch.bytes")
             .toString());
-    assertEquals("2560000", p.get("batch.size").toString()); // 10000 messages x 256 bytes
     assertEquals(
-        String.valueOf(64L * 1024 * 1024), p.get("buffer.memory").toString()); // capped at 64 MiB
+        "1000000",
+        p.get("batch.size").toString()); // 10000 x 256 bytes, cut to the 1 MB of the others
+    assertEquals(
+        "25600",
+        KafkaConf.translateOnly(Map.of("batch.num.messages", 100), 256)
+            .get("batch.size")
+            .toString()); // under the cap
+    assertEquals(
+        String.valueOf(32L * 1024 * 1024),
+        p.get("buffer.memory").toString()); // 32768 kB, like the others
     assertEquals("1", p.get("acks"));
     assertEquals("true", p.get("enable.auto.commit"));
   }

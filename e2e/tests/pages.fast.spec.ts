@@ -26,6 +26,19 @@ test('the welcome page shows Docker and lets you pick the memory', async ({ page
   await expect(page.getByText('How much processor does the lab get?')).toBeVisible();
 });
 
+test('the memory sizes on the welcome page and in the form are the ones the app sends', async ({ page, request }) => {
+  const { limits } = await (await request.get('/api/state')).json();
+  await page.goto('/welcome');
+  // One button per preset of the backend, the smallest one is a size that works.
+  for (const preset of limits.budget.presets) {
+    await expect(page.getByRole('radio', { name: new RegExp(preset.name) })).toBeVisible();
+  }
+  expect(limits.budget.presets[0].mb).toBeGreaterThanOrEqual(limits.budget.least_mb);
+  // A new form starts with the memory of a worker that the app counted from the chosen budget.
+  await page.goto('/setup');
+  await expect(page.getByLabel(/Memory each/).first()).toHaveValue(String(limits.form.worker_mb));
+});
+
 test('the theme switches between dark and light and is remembered', async ({ page }) => {
   await page.goto('/');
   const html = page.locator('html');

@@ -193,6 +193,15 @@ export function pacingDelay(sent: number, rate: number, elapsedSeconds: number):
   return Math.max(0, sent / rate - elapsedSeconds);
 }
 
+/**
+ * Split the limit of unconfirmed messages into batches: how many messages go in one send() call and how many such calls may wait
+ * for the broker at once. There are always at least two batches in the air, so the connection is not idle.
+ */
+export function batchPlan(limit: number, chunk: number): { chunk: number; inFlight: number } {
+  const size = Math.max(1, Math.min(chunk, Math.floor(limit / 2)));
+  return { chunk: size, inFlight: Math.max(1, Math.floor(limit / size)) };
+}
+
 /** How many messages to send between two pacing checks: about 10 ms worth, so the rate stays smooth. */
 export function pacingChunk(rate: number, maxChunk: number): number {
   if (rate <= 0) return maxChunk;

@@ -11,16 +11,15 @@
 import { randomBytes } from 'node:crypto';
 import type { KafkaJS } from '@confluentinc/kafka-javascript';
 import { kafka } from './kafka.js';
-import { buildHeader, nowMs, pacingChunk, pacingDelay, userKey } from './lib.js';
+import { batchPlan, buildHeader, nowMs, pacingChunk, pacingDelay, userKey } from './lib.js';
 import * as reporting from './reporting.js';
 import * as settings from './settings.js';
 
 /** Random padding is cut from one pre-generated megabyte, so generating it costs almost nothing. */
 const POOL_BYTES = 1 << 20;
 
-/** Most messages per send() call, and how many send() calls may be in flight at once (pipelining). */
+/** Most messages in one batch (one send() call). The real batch size is usually smaller, see pacingChunk below. */
 const MAX_CHUNK = 1000;
-const MAX_IN_FLIGHT = 8;
 
 /** The time in seconds since 1970, as the report wants it. */
 function nowSeconds(): number {
@@ -37,6 +36,7 @@ interface ProducerSettings {
   rate: number; // this producer's target messages per second; 0 = as fast as possible
   randomPayload: boolean; // incompressible data instead of a repeated filler
   users: number; // how many different users (message keys) the messages are spread over
+  maxUnconfirmed: number; // messages this producer may hold that the broker has not confirmed yet (a memory guard)
 }
 
 function readSettings(): ProducerSettings {
@@ -48,6 +48,7 @@ function readSettings(): ProducerSettings {
     rate: parseFloat(settings.required('RATE')),
     randomPayload: settings.required('PAYLOAD') === 'random',
     users: parseInt(settings.required('USERS'), 10),
+    maxUnconfirmed: parseInt(settings.required('MAX_UNCONFIRMED'), 10),
   };
 }
 
@@ -217,17 +218,20 @@ export async function run(): Promise<void> {
 
   // @producer-start
   // Messages go out in batches: building and sending them one by one would cost too much in Node.js.
-  // Each round: build a batch, send it, keep at most MAX_IN_FLIGHT unconfirmed batches, and wait if we are too fast.
+  // Each round: build a batch, send it, keep the unconfirmed messages under the shared limit, and wait if we are too fast.
+  // The limit is the same for every language (300,000 messages or 32 MB, whichever is smaller). The other clients hold
+  // to it themselves; here it becomes "how many batches may wait". It is a memory guard and not a speed setting: with
+  // two or more batches always on the way the connection stays busy, so the loop stops here only if the broker is behind.
   const begin = nowSeconds();
   counters.start();
-  const chunk = pacingChunk(cfg.rate, MAX_CHUNK); // batch size: about 10 ms of the target rate, at most MAX_CHUNK
+  const { chunk, inFlight: maxInFlight } = batchPlan(cfg.maxUnconfirmed, pacingChunk(cfg.rate, MAX_CHUNK)); // batch of about 10 ms of the target rate
   const inFlight = new Set<Promise<void>>();
   for (let first = 0; first < cfg.total && !reporting.control.stopping; first += chunk) {
     const count = Math.min(chunk, cfg.total - first);
     const batch = maker.batch(first, count); // messages number first .. first + count - 1
     produce(client, inFlight, batch);
     counters.setSent(first + count);
-    if (inFlight.size >= MAX_IN_FLIGHT) await Promise.race(inFlight); // do not run ahead of the broker
+    if (inFlight.size >= maxInFlight) await Promise.race(inFlight); // do not run ahead of the broker
     const delay = pacingDelay(first + count, cfg.rate, nowSeconds() - begin); // ahead of the target rate? then wait
     if (delay > 0) await reporting.sleep(delay * 1000);
   }

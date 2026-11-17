@@ -3,7 +3,8 @@
 import pytest
 from pydantic import ValidationError
 
-from app.models import ScenarioSpec, SetupRequest, WorkersSpec
+from app import config
+from app.models import ProducerSpec, ScenarioSpec, SettingsUpdate, SetupRequest, WorkersSpec
 
 
 def test_defaults_are_valid() -> None:
@@ -53,3 +54,19 @@ def test_the_number_handled_at_the_same_time_has_no_upper_limit() -> None:
     assert WorkersSpec(concurrency=5000).concurrency == 5000
     with pytest.raises(ValidationError):
         WorkersSpec(concurrency=0)
+
+
+def test_memory_defaults_and_minimums_come_from_the_config() -> None:
+    assert WorkersSpec().memory_mb == config.DEFAULT_WORKER_MEM_MB
+    assert ProducerSpec().memory_mb == config.DEFAULT_PRODUCER_MEM_MB
+    with pytest.raises(ValidationError):
+        WorkersSpec(memory_mb=config.MIN_CONTAINER_MEM_MB - 1)
+    with pytest.raises(ValidationError):
+        ProducerSpec(memory_mb=config.MIN_CONTAINER_MEM_MB - 1)
+    WorkersSpec(memory_mb=config.MIN_CONTAINER_MEM_MB)  # the least itself is fine
+
+
+def test_the_budget_cannot_be_below_the_minimum() -> None:
+    with pytest.raises(ValidationError):
+        SettingsUpdate(budget_mb=config.MIN_BUDGET_MB - 1)
+    assert SettingsUpdate(budget_mb=config.MIN_BUDGET_MB).budget_mb == config.MIN_BUDGET_MB

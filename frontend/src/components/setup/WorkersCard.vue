@@ -2,10 +2,12 @@
 /** Step 3: the workers, the containers that receive the messages. */
 import { langName } from '../../langs'
 import { useRunForm } from '../../composables/useRunForm'
+import { useLive } from '../../stores/live'
 import Hint from '../Hint.vue'
 import LangPicker from '../LangPicker.vue'
 import UsersDiagram from '../UsersDiagram.vue'
 
+const live = useLive()
 const { form, compare, compareLangs, plan } = useRunForm()
 </script>
 
@@ -26,7 +28,7 @@ const { form, compare, compareLangs, plan } = useRunForm()
       </label>
       <label class="field"
         >Memory each (MB)
-        <input class="input" type="number" min="128" step="64" v-model.number="form.workers.memory_mb" />
+        <input class="input" type="number" :min="live.limits.min_container_mb" step="64" v-model.number="form.workers.memory_mb" />
       </label>
       <label class="field"
         >At the same time per worker

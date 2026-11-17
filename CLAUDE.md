@@ -9,8 +9,11 @@ This file holds only what an assistant must keep in mind.
 
 - **Never push** (`git push`, force-push, deleting remote branches) unless the user says so in the current request.
   An earlier "push" does not cover later changes.
-- **Few commits: one per branch or task.** Fold follow-up changes into the existing commit instead of adding more. If
-  that commit is already pushed, ask before the force-push it needs (`--force-with-lease`, never plain `--force`).
+- **Few commits: do a task, then commit it as one commit**, not thirty small ones. This is about not scattering a task
+  over many commits while it is being done. It does not forbid a follow-up commit on top of a pushed one: after a push,
+  or after a review, add a new commit. Do not rewrite (`--amend`, rebase) a commit that is already pushed unless the
+  user asks for it. If the user does ask, the force-push it needs (`--force-with-lease`, never plain `--force`) is
+  still a separate push that the user must order.
 - Work in a branch, never commit to `main`. The user opens the pull request himself.
 - Commit messages: a short subject, then what changed and why. No `Co-Authored-By` or "Generated with" lines.
 - Subagents must not commit, push or switch branches.
@@ -47,6 +50,12 @@ same in every language**, and still production-like.
 
 ## Rules of the project
 - **One source of truth for Kafka settings:** `backend/app/config.py`. Workers only receive them.
+- **Each worker has a page in `docs/workers/`** (what it does, what is special in the language and why, why we think it
+  is fair, open questions). A change to a worker that changes how it works, or a difference found between languages,
+  is written there and in the README table in the same change. Say what is not known as plainly as what is.
+- **One source of truth for memory and CPU numbers** (defaults, minimums, budget buttons, the broker size): `config.py`.
+  The screens read them from `/api/state` (`limits`, built in `budget.limits`); a page, a form or a text never repeats
+  one. The README table of Docker memory is written by hand from them: change both together.
 - **No limits on the numbers of a run** (messages, rate, partitions, ...), only warnings (`backend/app/advice.py`).
   Only the memory budget refuses a run. Bounds in `models.py` are type limits, not lab limits.
 - **Numbers, not verdicts:** no scores, grades or "winner" in the report or the comparison.

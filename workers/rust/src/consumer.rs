@@ -13,7 +13,7 @@ use rdkafka::consumer::{BaseConsumer, CommitMode, Consumer};
 use rdkafka::message::BorrowedMessage;
 use rdkafka::Message;
 use std::sync::atomic::Ordering;
-use std::sync::{Arc, Condvar, Mutex};
+use std::sync::{mpsc, Arc, Condvar, Mutex};
 use std::time::{Duration, Instant};
 
 use crate::logic::{batch_timing, group_by_user, now_ms, parse_header, Item, OrderCheck};
@@ -46,6 +46,51 @@ impl Slots {
     fn give_back(&self) {
         *self.free.lock().unwrap() += 1;
         self.freed.notify_one();
+    }
+}
+
+/// Threads that live as long as the worker. A batch hands every user's group to one of them, so all the groups run at
+/// the same time without starting an operating system thread for every group of every batch (that cost almost all the
+/// processor of the worker). A batch has at most `concurrency` groups; the pool grows to the largest batch seen.
+struct Pool {
+    jobs: mpsc::Sender<Job>,
+    receiver: Arc<Mutex<mpsc::Receiver<Job>>>,
+    threads: usize,
+}
+
+type Job = Box<dyn FnOnce() + Send>;
+
+impl Pool {
+    fn new() -> Self {
+        let (jobs, receiver) = mpsc::channel();
+        Pool {
+            jobs,
+            receiver: Arc::new(Mutex::new(receiver)),
+            threads: 0,
+        }
+    }
+
+    /// Make sure there are at least `threads` threads, so that many jobs can start at once.
+    fn grow_to(&mut self, threads: usize) {
+        while self.threads < threads {
+            let receiver = self.receiver.clone();
+            std::thread::spawn(move || {
+                // Take the next job (one thread at a time waits for it), run it, ask for the next. The lock is
+                // let go before the job runs, so the jobs run at the same time.
+                loop {
+                    let job = receiver.lock().unwrap().recv();
+                    match job {
+                        Ok(job) => job(),
+                        Err(_) => break, // the worker is stopping
+                    }
+                }
+            });
+            self.threads += 1;
+        }
+    }
+
+    fn run(&self, job: Job) {
+        self.jobs.send(job).expect("the pool is gone");
     }
 }
 
@@ -110,20 +155,30 @@ fn handle_group(
 ///
 /// Returns how long the batch took and how long of that some groups were done while others still worked (milliseconds).
 fn run_batch(
-    groups: &[Vec<Item>],
-    scenario: &str,
+    pool: &mut Pool,
+    groups: Vec<Vec<Item>>,
+    scenario: &Arc<str>,
     param: u64,
-    cpu: &Slots,
-    order: &OrderCheck,
+    cpu: &Arc<Slots>,
+    order: &Arc<OrderCheck>,
 ) -> (f64, f64) {
     let started = Instant::now();
-    let done: Vec<Instant> = std::thread::scope(|scope| {
-        let running: Vec<_> = groups
-            .iter()
-            .map(|group| scope.spawn(move || handle_group(group, scenario, param, cpu, order)))
-            .collect();
-        running.into_iter().map(|h| h.join().unwrap()).collect()
-    });
+    let (finished, results) = mpsc::channel();
+    let count = groups.len();
+    pool.grow_to(count);
+    for group in groups {
+        let (scenario, cpu, order, finished) = (
+            scenario.clone(),
+            cpu.clone(),
+            order.clone(),
+            finished.clone(),
+        );
+        pool.run(Box::new(move || {
+            let done = handle_group(&group, &scenario, param, &cpu, &order);
+            let _ = finished.send(done);
+        }));
+    }
+    let done: Vec<Instant> = results.iter().take(count).collect();
     batch_timing(started, &done)
 }
 
@@ -135,7 +190,9 @@ fn commit(consumer: &BaseConsumer) {
 }
 
 pub fn run() {
-    let scenario = std::env::var("SCENARIO").unwrap_or_else(|_| "echo".to_string());
+    let scenario: Arc<str> = std::env::var("SCENARIO")
+        .unwrap_or_else(|_| "echo".to_string())
+        .into();
     let param: u64 = std::env::var("SCENARIO_PARAM")
         .ok()
         .and_then(|v| v.parse().ok())
@@ -154,7 +211,8 @@ pub fn run() {
     let periodic = (stats.clone(), consumer.clone());
     start_reporter(move || report(&periodic.0, &periodic.1, false), || true);
 
-    let cpu = Slots::new(get().cpu_threads);
+    let cpu = Arc::new(Slots::new(get().cpu_threads));
+    let mut pool = Pool::new();
     let order = stats.lock().unwrap().order.clone();
     while !STOPPING.load(Ordering::Relaxed) {
         let batch = read_batch(&consumer, &stats);
@@ -180,7 +238,14 @@ pub fn run() {
                 seq: header.seq,
             });
         }
-        let (busy_ms, wait_ms) = run_batch(&group_by_user(items), &scenario, param, &cpu, &order);
+        let (busy_ms, wait_ms) = run_batch(
+            &mut pool,
+            group_by_user(items),
+            &scenario,
+            param,
+            &cpu,
+            &order,
+        );
         stats.lock().unwrap().add_batch(busy_ms, wait_ms);
         commit(&consumer);
     }

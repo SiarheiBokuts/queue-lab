@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import {
+  batchPlan,
   batchTiming,
   bucket,
   buildHeader,
@@ -134,6 +135,15 @@ describe('pacing', () => {
     assert.equal(pacingChunk(10_000, 1000), 100);
     assert.equal(pacingChunk(5_000_000, 1000), 1000);
     assert.equal(pacingChunk(50, 1000), 1);
+  });
+});
+
+describe('the limit of unconfirmed messages', () => {
+  it('is split into batches with at least two in the air when it can be', () => {
+    assert.deepEqual(batchPlan(131_072, 1000), { chunk: 1000, inFlight: 131 });
+    assert.deepEqual(batchPlan(64, 1000), { chunk: 32, inFlight: 2 });
+    assert.deepEqual(batchPlan(1, 1000), { chunk: 1, inFlight: 1 });
+    assert.deepEqual(batchPlan(5000, 100), { chunk: 100, inFlight: 50 });
   });
 });
 

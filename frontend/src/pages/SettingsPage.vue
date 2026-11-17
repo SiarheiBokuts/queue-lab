@@ -8,7 +8,7 @@ import PageHeader from '../components/PageHeader.vue'
 import { fairCores } from '../cpu'
 
 const live = useLive()
-const form = reactive({ budget_mb: 2048, light_mode: false, remove_on_stop: true, welcomed: true })
+const form = reactive({ budget_mb: 0, light_mode: false, remove_on_stop: true, welcomed: true })
 
 onMounted(async () => {
   await live.refresh()
@@ -30,7 +30,7 @@ async function save() {
 }
 const labCpu = computed(() => Math.round(live.containers.reduce((sum: number, c: any) => sum + (c.cpu || 0), 0)))
 const labCpuShare = computed(() => (live.host.cpus ? Math.round(labCpu.value / live.host.cpus) : 0))
-const suggest = (p: number) => Math.max(512, Math.floor((live.host.available_mb * p) / 100 / 64) * 64)
+const suggest = (p: number) => Math.max(live.limits.budget.min_mb, Math.floor((live.host.available_mb * p) / 100 / 64) * 64)
 
 async function delQueue(name: string) {
   if (
@@ -117,8 +117,8 @@ async function delRuns() {
     <div class="lbl mt-3">
       What a sender or worker gets, by the number of containers in a run:
       <span v-for="n in [2, 3, 6, 10]" :key="n" class="badge ml-1.5"
-        >{{ n }} → {{ fairCores(live.host.cpus || 1, n) }} core{{
-          fairCores(live.host.cpus || 1, n) === 1 ? '' : 's'
+        >{{ n }} → {{ fairCores(live.host.cpus || 1, n, live.limits) }} core{{
+          fairCores(live.host.cpus || 1, n, live.limits) === 1 ? '' : 's'
         }}</span
       >
     </div>
@@ -134,7 +134,7 @@ async function delRuns() {
     <div>
       <label class="field"
         >Memory budget for all lab containers (MB)
-        <input class="input" type="number" min="512" step="64" v-model.number="form.budget_mb" />
+        <input class="input" type="number" :min="live.limits.budget.min_mb" step="64" v-model.number="form.budget_mb" />
       </label>
       <div class="lbl mt-2">
         Docker has {{ live.host.available_mb }} MB free of {{ live.host.total_mb }} MB. Quick pick:
@@ -144,6 +144,13 @@ async function delRuns() {
       </div>
       <div v-if="form.budget_mb > live.host.available_mb" class="text-amber-400 text-xs mt-1">
         This is more than the memory available to Docker now. The real free memory is still enforced.
+      </div>
+      <div
+        v-else-if="form.budget_mb < live.limits.budget.recommended_mb"
+        class="text-amber-400 text-xs mt-1"
+      >
+        With less than {{ Math.round(live.limits.budget.recommended_mb / 1024) }} GB only a small run fits (turn on Light
+        Kafka mode below to leave more room). The form warns when a setup does not fit.
       </div>
     </div>
     <label class="flex items-start gap-3 text-sm">

@@ -19,6 +19,14 @@ final class KafkaConf {
 
   private static final long MIB = 1024L * 1024L;
 
+  /**
+   * The librdkafka clients (Python, Go, Rust, Node.js) never put more than this many bytes in one
+   * batch ("batch.size", 1,000,000 by default), whatever "batch.num.messages" says. Java gets the
+   * same cap. Without it, big messages made a batch of up to 16 MB for every partition, which
+   * filled the whole buffer: the sender stalled.
+   */
+  private static final long MAX_BATCH_BYTES = 1_000_000L;
+
   /** The settings in the environment variable, translated, plus the broker address. */
   static Properties fromEnvironment(String variable, int messageSize) {
     Map<String, Object> raw;
@@ -48,11 +56,14 @@ final class KafkaConf {
         case "fetch.message.max.bytes" -> out.put("max.partition.fetch.bytes", value);
         case "batch.num.messages" ->
             out.put(
-                "batch.size", (int) Math.min(16 * MIB, ((Number) value).longValue() * messageSize));
-        case "queue.buffering.max.messages" ->
+                "batch.size",
+                (int) Math.min(MAX_BATCH_BYTES, ((Number) value).longValue() * messageSize));
+        case "queue.buffering.max.messages" -> {} // no equivalent: the Java client limits the bytes
+        // only
+        case "queue.buffering.max.kbytes" ->
             out.put(
                 "buffer.memory",
-                Math.max(32 * MIB, Math.min(64 * MIB, ((Number) value).longValue() * messageSize)));
+                ((Number) value).longValue() * 1024L); // the same bytes as the others
         default -> out.put(key, value);
       }
     }
