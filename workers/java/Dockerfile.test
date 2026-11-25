@@ -1,6 +1,6 @@
 # Checks of the Java worker: formatting (google-java-format via Spotless), compiler warnings and unit tests.
 # docker build -f workers/java/Dockerfile.test workers/java
-FROM maven:3-eclipse-temurin-25
+FROM maven:3-eclipse-temurin-26
 WORKDIR /src
 COPY pom.xml ./
 COPY src ./src
