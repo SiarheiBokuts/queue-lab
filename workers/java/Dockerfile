@@ -1,7 +1,7 @@
 # Worker image (Java). Built by the app through the Docker API the first time Java workers are used.
 # Unit tests have their own file: docker build -f workers/java/Dockerfile.test workers/java
 # The Kafka client is the official Apache one for Java; the shared settings are translated to its property names.
-FROM maven:3-eclipse-temurin-25 AS build
+FROM maven:3-eclipse-temurin-26 AS build
 WORKDIR /src
 COPY pom.xml ./
 COPY src/main ./src/main
