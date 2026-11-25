@@ -7,7 +7,7 @@ description = "queue-lab worker (Rust): Kafka producer and consumer behind one c
 [dependencies]
 # Confluent's librdkafka (built from source) wrapped for Rust: the same client family as the Python, Node.js and Go
 # workers, so the Kafka settings are identical.
-rdkafka = { version = "0.39", features = ["cmake-build"] }
+rdkafka = { version = "0.40", features = ["cmake-build"] }
 serde_json = "1"
 ureq = { version = "3", features = ["json"] }
 getrandom = "0.4"
